@@ -22,18 +22,19 @@
 #   *-21.2GB       exceeds the card outright
 
 dense:
-  base_repo: Qwen/Qwen3.6-27B
-  quant_repo: TODO                 # e.g. cyankiwi/Qwen3.6-27B-AWQ-INT4
-  revision: TODO                   # exact sha, not "main"
-  quantizer: TODO                  # awq | gptq | gguf-q4_k_m
-  approx_weights_gb: 15
+  base_repo: Qwen/Qwen3-14B
+  quant_repo: Qwen/Qwen3-14B-AWQ
+  revision: 31c69efc29464b6bb0aee1398b5a7b50a99340c3
+  quantizer: awq
+  approx_weights_gb: 10.0
 
 moe:
-  base_repo: Qwen/Qwen3.6-35B-A3B
-  quant_repo: TODO                 # e.g. cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit
-  revision: TODO
-  quantizer: TODO                  # MUST match dense
-  approx_weights_gb: 18            # TIGHT on a 20.4 GB card -- this is gate G1
+  base_repo: Qwen/Qwen3-30B-A3B
+  quant_repo: QuixiAI/Qwen3-30B-A3B-AWQ
+  revision: 1ba5586ace54cc9de85addac384eb88576f94598
+  quantizer: awq
+  approx_weights_gb: 16.8
+
 
 # Pre-registered backup if G1 fails on the MoE. Loses the sparse-vs-dense
 # contrast and becomes a size contrast -- supervisor's call, made before G1.
