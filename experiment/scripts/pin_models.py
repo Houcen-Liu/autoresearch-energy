@@ -36,20 +36,39 @@ def resolve(repo: str) -> dict:
     d = r.json()
 
     files = [f["rfilename"] for f in d.get("siblings", [])]
-    total_gb = None
-    try:                                   # size, when the Hub exposes it
-        total = sum(f.get("size") or 0 for f in d.get("siblings", []))
-        total_gb = round(total / 1e9, 1) if total else None
-    except Exception:                                              # noqa: BLE001
-        pass
+
+    # `usedStorage` is the authoritative on-disk size. Estimating from parameter
+    # count is what let a "27B int4" model turn out to be 20.5 GB: Qwen3.6 is
+    # multimodal and its quantizer leaves the vision tower, lm_head and the
+    # linear-attention projections in 16-bit.
+    total_gb = round(d.get("usedStorage", 0) / 1e9, 1) or None
+
+    st = d.get("safetensors") or {}
+    dtypes = {k: v for k, v in (st.get("parameters") or {}).items()}
+    quantized = sum(v for k, v in dtypes.items() if k in ("I32", "I8", "U8", "I4"))
+    unquantized = sum(v for k, v in dtypes.items() if k in ("F16", "BF16", "F32"))
+
+    # The upstream model this was quantized from, straight off the Hub tags.
+    # Hardcoding a family here would silently record the wrong base_repo the
+    # moment the subjects change -- which they did, when Qwen3.6 failed G1.
+    base = ""
+    for t in d.get("tags", []):
+        if t.startswith("base_model:") and not t.startswith("base_model:quantized:"):
+            base = t.split(":", 1)[1]
+            break
 
     return {
         "repo": repo,
+        "base_repo": base or "unknown",
         "sha": d.get("sha"),
         "last_modified": d.get("lastModified"),
         "downloads": d.get("downloads"),
+        "pipeline": d.get("pipeline_tag"),
         "weight_files": len([f for f in files if f.endswith((".safetensors", ".bin"))]),
         "approx_gb": total_gb,
+        "dtypes": {k: round(v / 1e9, 2) for k, v in dtypes.items()},
+        "unquantized_b": round(unquantized / 1e9, 2),
+        "quantized_b": round(quantized / 1e9, 2),
         "config": [f for f in files if f in ("config.json", "quant_config.json")],
     }
 
@@ -61,6 +80,10 @@ def main() -> int:
     ap.add_argument("--quantizer", required=True,
                     choices=["awq", "gptq", "gguf-q4_k_m"])
     ap.add_argument("--models-yaml", default=str(ROOT / "serving" / "models.yaml"))
+    ap.add_argument("--card-gib", type=float, default=20.0,
+                    help="usable VRAM per card; RTX 4000 Ada = 20475 MiB = 20.0 GiB")
+    ap.add_argument("--kv-headroom-gib", type=float, default=2.5,
+                    help="reserve for KV cache, activations and CUDA context")
     ap.add_argument("--write", action="store_true")
     a = ap.parse_args()
 
@@ -71,31 +94,69 @@ def main() -> int:
         print("       D3 requires the same quantizer and method for both arms;")
         print("       mixing them makes the comparison a quantizer contrast too.")
 
+    budget_gib = a.card_gib - a.kv_headroom_gib
     info = {"dense": resolve(a.dense), "moe": resolve(a.moe)}
+    fails = []
+
     for arm, d in info.items():
+        gib = (d["approx_gb"] / 1.073741824) if d["approx_gb"] else None
         print(f"\n{arm}: {d['repo']}")
         print(f"  sha           {d['sha']}")
         print(f"  last modified {d['last_modified']}")
-        print(f"  downloads     {d['downloads']:,}" if d["downloads"] else "")
-        print(f"  weight files  {d['weight_files']}"
-              + (f", ~{d['approx_gb']} GB" if d["approx_gb"] else ""))
-        if d["approx_gb"] and d["approx_gb"] > 19:
-            print(f"  [warn] ~{d['approx_gb']} GB of weights on a 20.4 GB card leaves")
-            print( "         almost nothing for KV cache. Gate G1 will decide it.")
+        if d["downloads"]:
+            print(f"  downloads     {d['downloads']:,}")
+        print(f"  base model    {d['base_repo']}")
+        print(f"  pipeline      {d['pipeline']}")
+        if gib:
+            print(f"  ON-DISK SIZE  {d['approx_gb']} GB = {gib:.1f} GiB")
+        if d["dtypes"]:
+            print(f"  dtypes        {d['dtypes']}")
+            if d["unquantized_b"] > 0.5:
+                print(f"  [warn] {d['unquantized_b']}B parameters are NOT quantized "
+                      f"(16-bit) ~= {d['unquantized_b'] * 2:.1f} GB.")
+                print( "         Multimodal towers, lm_head and linear-attention")
+                print( "         projections are commonly excluded by quantizers.")
+        if d["pipeline"] and "image" in str(d["pipeline"]):
+            print( "  [warn] multimodal checkpoint: the vision tower ships with the")
+            print( "         weights and is usually left in 16-bit. A text-only")
+            print( "         sibling is far smaller if one exists.")
+
+        if gib and gib > budget_gib:
+            fails.append((arm, gib))
+            print(f"  *** WILL NOT FIT *** {gib:.1f} GiB of weights against a "
+                  f"{a.card_gib:.1f} GiB card")
+            print(f"      minus {a.kv_headroom_gib:.1f} GiB for KV cache and context "
+                  f"= {budget_gib:.1f} GiB available.")
+        elif gib:
+            print(f"  [ ok ] fits: {gib:.1f} GiB <= {budget_gib:.1f} GiB available")
+
+    if fails:
+        print("\n*** GATE G1 FAILS ON WEIGHTS, BEFORE SERVING ***")
+        for arm, gib in fails:
+            print(f"  {arm}: {gib:.1f} GiB")
+        print("""
+  No --max-model-len setting fixes this: the weights alone exceed the card.
+  Options, in order of preference:
+    1. A smaller matched pair from the same family (text-only if possible).
+    2. The pre-registered Granite backup (becomes a size contrast, not sparsity).
+    3. llama.cpp GGUF at a lower quant for BOTH arms (fairness rule, D3).
+  Re-run this script on candidates BEFORE downloading them.""")
+        if not a.write:
+            return 1
 
     block = f"""dense:
-  base_repo: Qwen/Qwen3.6-27B
+  base_repo: {info['dense']['base_repo']}
   quant_repo: {info['dense']['repo']}
   revision: {info['dense']['sha']}
   quantizer: {a.quantizer}
-  approx_weights_gb: {info['dense']['approx_gb'] or 15}
+  approx_weights_gb: {info['dense']['approx_gb'] or 'unknown'}
 
 moe:
-  base_repo: Qwen/Qwen3.6-35B-A3B
+  base_repo: {info['moe']['base_repo']}
   quant_repo: {info['moe']['repo']}
   revision: {info['moe']['sha']}
   quantizer: {a.quantizer}
-  approx_weights_gb: {info['moe']['approx_gb'] or 18}
+  approx_weights_gb: {info['moe']['approx_gb'] or 'unknown'}
 """
 
     if not a.write:
