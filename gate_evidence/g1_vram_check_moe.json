@@ -1,0 +1,11 @@
+{
+  "model": "moe",
+  "requests": 40,
+  "failures": 0,
+  "latency_p50_s": 29.600281953811646,
+  "latency_p95_s": 29.81677532196045,
+  "peak_vram_gb": 20.871512064,
+  "total_vram_gb": 21.4695936,
+  "headroom_gb": 0.5980815359999987,
+  "PASS": true
+}
