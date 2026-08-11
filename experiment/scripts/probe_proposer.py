@@ -68,21 +68,44 @@ def main() -> int:
     print(f"probing {a.model} at {endpoint}\n")
 
     # 1 ------------------------------------------------------------ reachable
+    # Two conventions. vLLM and llama.cpp serve the OpenAI-standard
+    # /v1/models; Ollama serves /api/tags and reports the *tag* name. Ask the
+    # standard endpoint first, because that is what the experiment runs on --
+    # the pilot's Ollama quirks are the special case, not the default.
+    names: list[str] = []
+    listed = False
     try:
-        tags = requests.get(f"{base}/api/tags", timeout=10).json()
-        names = [m["name"] for m in tags.get("models", [])]
-        print(f"{OK} server reachable, {len(names)} model(s) installed")
+        r = requests.get(f"{endpoint.rstrip('/')}/models", timeout=10)
+        if r.status_code < 400:
+            names = [m["id"] for m in r.json().get("data", [])]
+            listed = True
+            print(f"{OK} server reachable (OpenAI /v1/models), "
+                  f"{len(names)} model(s) served")
+    except Exception:                                                  # noqa: BLE001
+        pass
+
+    if not listed:
+        try:
+            tags = requests.get(f"{base}/api/tags", timeout=10).json()
+            names = [m["name"] for m in tags.get("models", [])]
+            listed = True
+            print(f"{OK} server reachable (Ollama /api/tags), "
+                  f"{len(names)} model(s) installed")
+        except Exception as e:                                         # noqa: BLE001
+            print(f"{WARN} could not list models ({e}); continuing")
+
+    if listed and names:
         if a.model in names:
-            print(f"{OK} '{a.model}' is installed")
+            print(f"{OK} '{a.model}' is served")
         elif a.model.endswith(":cloud"):
             print(f"{WARN} '{a.model}' is a cloud tag; not listed locally, that is "
                   f"normal. It needs `ollama signin`.")
         else:
-            print(f"{BAD} '{a.model}' NOT installed. Try: ollama pull {a.model}")
-            print(f"       installed: {', '.join(names[:10])}")
+            print(f"{BAD} '{a.model}' is NOT served here.")
+            print(f"       served: {', '.join(names[:10])}")
+            print( "       For vLLM this is --served-model-name; the harness and the")
+            print( "       launcher must agree on it or every request 404s.")
             return 1
-    except Exception as e:                                             # noqa: BLE001
-        print(f"{WARN} could not list models ({e}); continuing")
 
     # 2 --------------------------------------------------------------- loaded
     try:
