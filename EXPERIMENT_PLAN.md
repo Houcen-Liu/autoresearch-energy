@@ -890,3 +890,83 @@ determinism and belongs in *Threats*.
 3. `python scripts/smoke_test.py --profile pilot --proposer stub` — full pipeline on fake data
 4. Point `profiles/pilot.yaml` at your local small model, re-run without `--proposer stub`
 5. Send Vincenzo the section 11 items
+
+---
+
+## D17 — G1 passed on the server; measured serving costs (2026-08-11)
+
+Both arms serve and survive the stress test on one RTX 4000 Ada.
+
+| | dense (Qwen3-14B-AWQ) | MoE (Qwen3-30B-A3B-AWQ) |
+|---|---|---|
+| weights | 9.44 GiB | 15.6 GiB |
+| requests / failures | 40 / 0 | 40 / 0 |
+| latency p50 | 58.87 s | 29.60 s |
+| latency p95 | 58.88 s | 29.82 s |
+| peak VRAM | 20.89 GB | 20.87 GB |
+| headroom | 0.58 GB | 0.60 GB |
+| throughput (probe) | 35 tok/s | 69 tok/s |
+| probe latency | 47 s | 25 s |
+| prompt / completion tokens | 2116 / 1626 | 2116 / 1707 |
+| fenced code block | yes | yes |
+| `chat_template_kwargs` accepted | yes | yes |
+
+Both arms accept `enable_thinking: false` and return a fenced code block on the
+first attempt, from an identical 2116-token prompt, with completion lengths within
+5 % of each other. Thinking mode is therefore pinned symmetrically (D9) and the
+output contract is satisfied by both -- neither the compliance failure the pilot's
+4B model showed nor the silent parameter rejection the cloud proxy showed.
+
+**The MoE proposes 2.0x faster.** ~3B active parameters against 14.8B, on the same
+card, same quantizer, same serving flags. This is the sparsity effect the study
+exists to measure, visible before a single session has run. It does not yet say
+anything about joules (power draw differs) or about proposal *quality*, which is
+what Phase 1 measures.
+
+p50 and p95 are within 0.01 s on the dense arm. At temperature 0 with a fixed
+prompt the model is deterministic, so latency variance is essentially zero --
+useful, because it means session-level energy differences will come from what the
+agent *does*, not from sampling noise in how long it takes to say it.
+
+### Consequence for the energy split
+
+At 45 s of training and ~59 s of proposing, the dense arm spends ~57 % of session
+wall-clock in the proposer; the MoE ~40 %. Both are far above the ~17 % that a
+240 s budget would have given (D15), which is the sensitivity the short budget was
+chosen for.
+
+### Serving stack, pinned
+
+vLLM 0.27.1, FlashInfer 0.6.16.post3, torch 2.13.0, CUDA 13.0, driver 580.159.03,
+AWQ via MarlinLinearKernel, FLASHINFER attention, fp8 KV cache, `--enforce-eager`,
+`--max-model-len 16384`, `--gpu-memory-utilization 0.94`, `--max-num-seqs 1`,
+prefix caching on (vLLM default). Frozen in `serving-requirements.txt`.
+
+Getting there took a full evening of toolchain work, none of which is a design
+issue but all of which is a replication hazard, so it is recorded:
+
+1. `--disable-log-requests` was removed in vLLM 0.27; it is not a valid flag.
+2. vLLM 0.27 ignores `VLLM_ATTENTION_BACKEND` and offers no `--attention-backend`,
+   so FlashInfer cannot be swapped for a JIT-free backend.
+3. FlashInfer cannot be uninstalled either -- vLLM's sampler imports it
+   unguarded (`flashinfer_sampler_supported`).
+4. Its JIT needs a *self-consistent* CUDA toolkit. `flashinfer-python` depends on
+   `nvidia-cuda-nvcc` unpinned, and `nvidia-cuda-nvcc` in turn depends on
+   `nvidia-nvvm` and `nvidia-cuda-crt` unpinned, so pip assembles a mixture:
+   13.0 headers, 13.3 frontend, 13.0 ptxas. Symptoms in order of discovery were
+   "CUDA compiler and CUDA toolkit headers are incompatible", then
+   "Unsupported .version 9.3; current version is '9.0'". All five packages must
+   be pinned to the same minor version.
+5. Linking then fails because the pip wheels use `cu13/lib` while the generated
+   build file expects `cu13/lib64`, ship only `libcudart.so.13`, and ship no
+   `stubs/libcuda.so`. `serve_vllm.sh` now creates those three symlinks itself.
+6. `pip install flashinfer-python==<older>` silently downgrades **torch**, which
+   would break the harness venv if run there. Serving lives in `.venv-serve` for
+   exactly this reason.
+
+### Threat to validity
+
+Attention kernels are JIT-compiled for sm89 on this machine. A replication on
+different silicon, or with a system CUDA toolkit, gets different kernels and
+therefore different throughput and energy. Both arms share one build, so the
+*contrast* is sound; absolute joules are hardware- and stack-specific.

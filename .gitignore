@@ -18,6 +18,7 @@ vllm_*.log
 __pycache__/
 *.py[cod]
 .venv/
+.venv-serve/
 venv/
 .pytest_cache/
 *.egg-info/

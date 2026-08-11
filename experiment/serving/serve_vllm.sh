@@ -64,6 +64,39 @@ PY
   fi
 fi
 
+# FlashInfer links its JIT-built kernels against libcudart and the driver stub.
+# The pip CUDA wheels install libraries in cu13/lib (not lib64, which the build
+# file hardcodes), ship only the version-suffixed libcudart.so.13, and ship no
+# stubs/ directory at all -- the driver library lives in the system path. Three
+# symlinks, created once, are the difference between "cannot find -lcudart" and
+# a working server. Idempotent, so this is safe on every start.
+python - <<'PY'
+import glob, os, site
+for root in site.getsitepackages():
+    cu = os.path.join(root, "nvidia", "cu13")
+    lib = os.path.join(cu, "lib")
+    if not os.path.isdir(lib):
+        continue
+    lib64 = os.path.join(cu, "lib64")
+    if not os.path.exists(lib64):
+        os.symlink("lib", lib64)
+    for stem in ("libcudart",):
+        plain = os.path.join(lib, stem + ".so")
+        versioned = sorted(glob.glob(os.path.join(lib, stem + ".so.*")))
+        if versioned and not os.path.exists(plain):
+            os.symlink(os.path.basename(versioned[-1]), plain)
+    stubs = os.path.join(lib, "stubs")
+    os.makedirs(stubs, exist_ok=True)
+    target = os.path.join(stubs, "libcuda.so")
+    if not os.path.exists(target):
+        for cand in ("/usr/lib/x86_64-linux-gnu/libcuda.so.1",
+                     "/usr/lib64/libcuda.so.1"):
+            if os.path.exists(cand):
+                os.symlink(cand, target)
+                break
+    break
+PY
+
 # Persist the JIT cache so the compile is paid once, not on every model swap.
 # Without this each arm swap costs minutes of kernel compilation, which would
 # land inside the measured window.
