@@ -6,6 +6,9 @@ pandas
 pyyaml
 requests
 
+# Model pinning / download
+huggingface_hub
+
 # Measurement
 nvidia-ml-py>=12.535
 
