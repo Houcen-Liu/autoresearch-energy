@@ -30,15 +30,45 @@ GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.94}"
 # default and harmless. Add version-specific flags here instead of inline.
 VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 
-# Attention backend. vLLM prefers FlashInfer, which JIT-compiles CUDA kernels at
-# startup and therefore needs nvcc -- the CUDA *toolkit*, not just the driver.
-# A driver-only machine fails with "Could not find nvcc and default
-# cuda_home='/usr/local/cuda' doesn't exist". TRITON_ATTN compiles through
-# Triton's bundled ptxas and needs no toolkit.
+# CUDA toolkit for FlashInfer's JIT.
 #
-# This is a fixed variable: whichever backend is used, BOTH arms must use it, or
-# the arm contrast picks up a kernel-implementation contrast as well (D3).
-export VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}"
+# vLLM's preferred attention backend (FlashInfer) compiles kernels at startup and
+# needs nvcc plus the CUDA headers. A machine with only the driver fails with
+#   RuntimeError: Could not find nvcc and default cuda_home='/usr/local/cuda'
+# even though `pip list` shows nvidia-cuda-nvcc installed: the pip toolkit lives
+# under site-packages/nvidia and is neither on PATH nor pointed to by CUDA_HOME.
+#
+# vLLM 0.27 no longer honours VLLM_ATTENTION_BACKEND (it warns "Unknown vLLM
+# environment variable") and exposes no --attention-backend flag, so selecting a
+# JIT-free backend is not an option -- the toolkit has to be found instead.
+if [ -z "${CUDA_HOME:-}" ] && ! command -v nvcc >/dev/null 2>&1; then
+  CUDA_HOME="$(python - <<'PY'
+import glob, os, site, sys
+roots = site.getsitepackages() + [site.getusersitepackages()]
+for r in roots:
+    for nvcc in glob.glob(os.path.join(r, "nvidia", "**", "bin", "nvcc"), recursive=True):
+        home = os.path.dirname(os.path.dirname(nvcc))
+        # Needs headers too, not just the compiler.
+        if glob.glob(os.path.join(home, "include", "cuda_runtime.h")):
+            print(home); sys.exit(0)
+        print(home); sys.exit(0)
+PY
+)"
+  if [ -n "$CUDA_HOME" ]; then
+    export CUDA_HOME
+    export PATH="$CUDA_HOME/bin:$PATH"
+    echo "[serve] CUDA_HOME -> $CUDA_HOME (pip toolkit)"
+  else
+    echo "[serve] WARNING: no nvcc found. FlashInfer will fail to JIT its kernels."
+    echo "[serve]          pip install nvidia-cuda-nvcc  (or flashinfer-jit-cache)"
+  fi
+fi
+
+# Persist the JIT cache so the compile is paid once, not on every model swap.
+# Without this each arm swap costs minutes of kernel compilation, which would
+# land inside the measured window.
+export FLASHINFER_WORKSPACE_BASE="${FLASHINFER_WORKSPACE_BASE:-$HOME/.cache/flashinfer}"
+mkdir -p "$FLASHINFER_WORKSPACE_BASE"
 
 exec vllm serve "$MODEL" \
   --revision "$REVISION" \
