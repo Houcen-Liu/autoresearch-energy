@@ -30,6 +30,16 @@ GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.94}"
 # default and harmless. Add version-specific flags here instead of inline.
 VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 
+# Attention backend. vLLM prefers FlashInfer, which JIT-compiles CUDA kernels at
+# startup and therefore needs nvcc -- the CUDA *toolkit*, not just the driver.
+# A driver-only machine fails with "Could not find nvcc and default
+# cuda_home='/usr/local/cuda' doesn't exist". TRITON_ATTN compiles through
+# Triton's bundled ptxas and needs no toolkit.
+#
+# This is a fixed variable: whichever backend is used, BOTH arms must use it, or
+# the arm contrast picks up a kernel-implementation contrast as well (D3).
+export VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}"
+
 exec vllm serve "$MODEL" \
   --revision "$REVISION" \
   --served-model-name "$ARM" \
