@@ -1,0 +1,26 @@
+# Pinned proposer subjects. Fill `revision` in week 1 (day 1) and never change it afterwards.
+# Both arms MUST use the same quantizer and the same serving stack -- see EXPERIMENT_PLAN.md D3.
+
+dense:
+  base_repo: Qwen/Qwen3.6-27B
+  quant_repo: TODO                 # int4 AWQ or GPTQ community quant
+  revision: TODO
+  quantizer: TODO                  # awq | gptq | gguf-q4_k_m
+  approx_weights_gb: 15
+
+moe:
+  base_repo: Qwen/Qwen3.6-35B-A3B
+  quant_repo: TODO
+  revision: TODO
+  quantizer: TODO
+  approx_weights_gb: 18            # TIGHT on a 20 GB card -- gate G1
+
+# Pre-registered backup pair if G1 fails on the MoE (loses sparse-vs-dense, becomes size contrast)
+backup_dense:
+  base_repo: ibm-granite/granite-4.1-8b-instruct
+backup_large:
+  base_repo: ibm-granite/granite-4.1-30b-instruct
+
+# NOT usable on RTX 4000 Ada (sm_89):
+#   nvidia/Qwen3.6-35B-A3B-NVFP4   -- NVFP4 requires Blackwell (sm_100+)
+#   Qwen/Qwen3.6-27B-FP8           -- ~28 GB of weights, exceeds 20 GB

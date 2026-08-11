@@ -1,0 +1,24 @@
+# Core
+torch>=2.4
+torchvision>=0.19
+numpy
+pandas
+pyyaml
+requests
+
+# Measurement
+nvidia-ml-py>=12.535
+
+# Analysis
+scipy
+statsmodels
+matplotlib
+
+# experiment-runner deps (see ../requirements.txt)
+psutil
+tabulate
+dill
+jsonpickle
+
+# Dev
+pytest

@@ -1,0 +1,94 @@
+# Local PC: single RTX 3080 Laptop (16 GB). Training and proposer SHARE one GPU.
+# FUNCTIONAL TEST ONLY -- energy attribution is invalid here and is refused by the
+# harness. Total energy is still sampled, so utilisation can be inspected.
+name: pilot
+attribution: none
+
+gpus:
+  train: 0
+  proposer: 0                    # same device -> attribution disabled
+
+workload:
+  train_seconds: 45
+  train_timeout_s: 150
+  data_dir: ./data
+
+proposer:
+  # Any OpenAI-compatible server. Ollama shown; llama.cpp-server and vLLM work
+  # unchanged. Ollama ':cloud' tags also work through this same path.
+  endpoints:
+    dense: http://127.0.0.1:11434/v1
+    moe:   http://127.0.0.1:11434/v1
+  model_names:
+    # Qwen3.6 only ships at 27B/35B, far too large to sit next to training on a
+    # 16 GB laptop GPU. Any small instruct model works -- the pilot proposer's
+    # identity is not a scientific variable.
+    dense: qwen3:4b
+    moe: qwen3:14b
+
+  temperature: 0.0
+  top_p: 1.0
+  # A complete train.py rewrite is ~2000 tokens (180 lines). 2048 was too tight:
+  # both models were truncated mid-file at exactly the ceiling, leaving no
+  # closing fence, which the parser reported as "no fenced block" -- the wrong
+  # diagnosis. The client now detects finish_reason == "length" explicitly.
+  # With reasoning off a reply is ~2000 tokens; this is a ceiling, not a target,
+  # so the headroom is free insurance against a model that ignores /no_think.
+  max_tokens: 8192
+
+  # Measured on the pilot: qwen3:4b needed ~50 s for a 16-token reply from cold,
+  # and blew past 180 s on a real 2.5k-token prompt with thinking enabled.
+  # One request may take this long...
+  request_timeout_s: 600
+  # ...and one ITERATION may spend at most this long on proposing, across all
+  # attempts. The pilot burned 3 x 300 s per failed iteration without this.
+  time_budget_s: 900
+  # One retry, with a minimal repair prompt rather than the full history.
+  max_retries: 1
+
+  # Appended to the system prompt. `/no_think` is Qwen3's soft switch for
+  # disabling reasoning; unlike Ollama's `think` field it survives the
+  # OpenAI-compatible endpoint, which silently drops unknown request fields.
+  # Thinking tokens are pure proposer cost with no artifact (D9), so on the
+  # pilot they are turned off at the prompt level and recorded in the manifest.
+  system_suffix: ""
+  # Appended to the USER turn. Qwen3 only honours /no_think there; in the system
+  # prompt it is silently ignored, which cost the pilot ~4000 reasoning tokens
+  # per reply (5606-6086 total for a 1430-token file) and two truncations.
+  prompt_suffix: "/no_think"
+
+  extra_params:
+    # THINKING MODE IS A FIXED VARIABLE, not a default to inherit.
+    # Reasoning tokens are pure proposer energy that produces no artifact, and if
+    # the two arms differ in thinking behaviour the comparison is confounded.
+    # Ollama:      think: false
+    # vLLM/Qwen:   chat_template_kwargs: {enable_thinking: false}
+    think: false
+    # NOTE: do NOT put `options: {num_ctx: ...}` here. That is an /api/chat field;
+    # the OpenAI-compatible /v1 endpoint ignores it locally and Ollama's cloud
+    # proxy rejects the whole request. Set the context length instead with the
+    # OLLAMA_CONTEXT_LENGTH environment variable, or a Modelfile:
+    #     $env:OLLAMA_CONTEXT_LENGTH = 8192    # then restart ollama serve
+    # THIS MATTERS ENORMOUSLY. Left at Qwen3's 262,144-token default, Ollama
+    # reserved 43 GB of KV cache for a 4B model on the pilot and ran 66 % of it
+    # on CPU -- every request hit the 600 s timeout. 8192 covers a ~2.5k prompt
+    # plus a ~1.5k completion with room to spare.
+
+energy:
+  nvml: true                     # total only, no attribution on one GPU
+  nvml_hz: 10
+  energibridge: false            # RAPL is unreliable on consumer Windows laptops
+  energibridge_interval_ms: 100
+  energibridge_bin: energibridge
+
+loop:
+  # MEASURED on the pilot: noise_floor.py --repeats 8 --train-seconds 45
+  # --cooldown 30 gave detrended SD = 0.0037, so EPS = 2 x SD = 0.0073.
+  # For contrast, the same measurement WITHOUT cooldown gave SD 0.0101 and would
+  # have set EPS at 0.0202 -- 2.7x too strict, because it was measuring thermal
+  # drift rather than noise (D11/D13).
+  eps: 0.0073
+  cooldown_s: 15
+  # Above this share of INFRASTRUCTURE errors a session is not evidence about the
+  # proposer; it is quarantined and re-run.
+  max_infra_error_rate: 0.25

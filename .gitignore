@@ -1,0 +1,33 @@
+# Experiment output — regenerated, never committed
+experiments/
+experiment/data/
+experiment/data_synth/
+*.npz
+*.pt
+*.bundle
+nvml.csv
+energibridge*.csv
+
+# Model weights and serving logs
+models/
+*.gguf
+*.safetensors
+vllm_*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Scratch
+*.tmp
+*.bak

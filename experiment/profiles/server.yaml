@@ -1,0 +1,76 @@
+# S2 workstation: 2x NVIDIA RTX 4000 Ada (20 GB each)
+name: server
+attribution: per_device          # E_prop and E_train are separate measurements
+
+gpus:
+  train: 0                       # inner CIFAR-10 CNN training
+  proposer: 1                    # LLM serving
+
+workload:
+  # FIXED wall-clock budget per inner experiment.
+  # 45 s chosen from gate G11 on the pilot (EXPERIMENT_PLAN.md D12/D15), not from
+  # tradition: at 45 s the agent already has +14.5 pp of headroom against 0.5 pp
+  # of noise, and the proposer becomes ~53 % of loop time instead of ~17 %, which
+  # makes the experiment far more sensitive to its own headline factor.
+  # RE-CONFIRM ON THE SERVER: the RTX 4000 Ada is slower than the pilot GPU, so
+  # re-run headroom_check.py and noise_floor.py there before freezing this.
+  train_seconds: 45
+  train_timeout_s: 240           # derived floor; the harness enforces budget*1.25+120 anyway
+  data_dir: ./data
+
+proposer:
+  endpoints:
+    dense: http://127.0.0.1:8000/v1
+    moe:   http://127.0.0.1:8001/v1
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 8192
+
+  # One request may take this long...
+  request_timeout_s: 600
+  # ...and one ITERATION may spend at most this long proposing, across all
+  # attempts. Without this a systematically non-compliant model can burn hours
+  # per session and return nothing.
+  time_budget_s: 900
+  # One retry, with a minimal repair prompt rather than the full history.
+  max_retries: 1
+
+  # Appended to the USER turn (see pilot notes): vendor request fields for
+  # thinking are unreliable, prompt-level switches are not. Verify with
+  # scripts/probe_proposer.py which mechanism the serving stack honours, and
+  # record thinking_tokens per iteration either way.
+  prompt_suffix: ""
+
+  extra_params:
+    # THINKING MODE IS A FIXED VARIABLE. Qwen3.6 is a reasoning model; thinking
+    # tokens are proposer energy that produces no artifact. If dense and MoE
+    # differ in thinking behaviour, that difference swamps the sparsity effect
+    # this study exists to measure. Pin it identically for both arms and report
+    # it. For vLLM + Qwen, thinking is controlled through the chat template:
+    chat_template_kwargs:
+      enable_thinking: false
+    # Verify with scripts/probe_proposer.py that the serving stack ACCEPTS this.
+    # If it is rejected the harness drops it and continues, and thinking mode
+    # will silently not be pinned -- which would confound the whole comparison.
+
+energy:
+  nvml: true
+  nvml_hz: 10
+  energibridge: true
+  energibridge_interval_ms: 100
+  energibridge_bin: energibridge
+
+loop:
+  # Pilot value, pending re-measurement on this hardware (gate G8').
+  # Pilot: 8 repeats at 45 s with a 30 s cooldown -> detrended SD 0.0037,
+  # EPS = 2 x SD = 0.0073. The same series without cooldown gave SD 0.0101,
+  # i.e. thermal drift inflated the apparent noise 2.7x (D11/D13).
+  #     python scripts/noise_floor.py --profile profiles/server.yaml --repeats 8
+  # then set eps to the suggested value and record it in the report.
+  eps: 0.0073
+  cooldown_s: 120
+  # Above this share of INFRASTRUCTURE errors (timeouts, transport) a session is
+  # quarantined and re-run rather than analysed. Agent-side failures -- contract
+  # violations, guard rejections, crashed recipes -- are data and never trigger
+  # this.
+  max_infra_error_rate: 0.25

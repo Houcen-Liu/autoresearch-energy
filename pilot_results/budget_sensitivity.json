@@ -1,0 +1,68 @@
+{
+  "profile": "profiles\\pilot.yaml",
+  "budgets": [
+    5.0,
+    10.0,
+    20.0,
+    45.0,
+    90.0
+  ],
+  "cooldown_s": 30.0,
+  "corr_steps_vs_acc": 0.596,
+  "total_gain_pp": 15.94,
+  "tail_gain_pp": -0.52,
+  "tail_compute_ratio": 3.94,
+  "saturated": true,
+  "runs": [
+    {
+      "train_seconds": 5.01,
+      "val_acc": 0.587,
+      "epochs_completed": 2,
+      "steps": 964,
+      "peak_vram_mb": 438,
+      "errored": false,
+      "exit": 0,
+      "checkpoint": true
+    },
+    {
+      "train_seconds": 10.01,
+      "val_acc": 0.6998,
+      "epochs_completed": 4,
+      "steps": 1722,
+      "peak_vram_mb": 438,
+      "errored": false,
+      "exit": 0,
+      "checkpoint": true
+    },
+    {
+      "train_seconds": 20.01,
+      "val_acc": 0.7516,
+      "epochs_completed": 10,
+      "steps": 3601,
+      "peak_vram_mb": 437,
+      "errored": false,
+      "exit": 0,
+      "checkpoint": true
+    },
+    {
+      "train_seconds": 45.01,
+      "val_acc": 0.7598,
+      "epochs_completed": 21,
+      "steps": 7456,
+      "peak_vram_mb": 438,
+      "errored": false,
+      "exit": 0,
+      "checkpoint": true
+    },
+    {
+      "train_seconds": 90.01,
+      "val_acc": 0.7464,
+      "epochs_completed": 40,
+      "steps": 14198,
+      "peak_vram_mb": 438,
+      "errored": false,
+      "exit": 0,
+      "checkpoint": true
+    }
+  ]
+}

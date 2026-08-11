@@ -1,0 +1,54 @@
+# program.md — autonomous CIFAR-10 recipe optimisation
+
+## Task
+
+Improve validation accuracy of the CIFAR-10 recipe in `train.py` by editing that
+file and nothing else. Each of your proposals is trained for a fixed
+**{{ train_seconds }} seconds of wall clock** and scored on a held-out 5 000-image
+validation split. Higher is better.
+
+## Rules
+
+1. `train.py` is the only file you may change. `prepare_cifar.py` is off limits.
+2. `TRAIN_SECONDS` must keep exactly the value it already has in the file.
+   Changing it, or otherwise training for longer, invalidates the comparison and
+   your proposal is rejected without being run. Your recipe is given roughly
+   {{ train_seconds }} seconds of training per experiment.
+3. Data comes only from `prepare_cifar.load_splits()`. The test split does not
+   exist for you.
+4. `build_model()` and `main()` must exist; `result.json` must carry
+   `val_acc`, `epochs_completed`, `steps`, `train_seconds`, `peak_vram_mb`.
+5. Allowed imports: torch, torchvision, numpy, math, time, json, random,
+   argparse, pathlib, prepare_cifar. Nothing else.
+6. Never ask for help or clarification. Propose, and keep proposing.
+
+Everything else is yours: architecture, width, depth, normalisation, optimiser,
+learning-rate schedule, batch size, augmentation, regularisation, mixed precision.
+
+## Selection rule for this session
+
+{% if patience == 1 -%}
+**Greedy.** A proposal is kept only if it beats the best validation accuracy so far
+by more than {{ eps }}. Anything else is reverted immediately and the next proposal
+starts from the best recipe found so far.
+{%- else -%}
+**Patience {{ patience }}.** A proposal that does not beat the best validation
+accuracy so far is kept provisionally, so that a change which pays off only in
+combination with later changes gets a chance. After {{ patience }} consecutive
+non-improving proposals the whole provisional chain is discarded and the recipe
+returns to the best one found so far.
+{%- endif %}
+
+You have **{{ loop_budget }} experiments** in this session. Rejected and errored
+proposals count against that budget, so proposals that do not parse or that break
+the rules cost you real experiments.
+
+## History so far
+
+{{ history }}
+
+## Current train.py
+
+```python
+{{ current_source }}
+```
