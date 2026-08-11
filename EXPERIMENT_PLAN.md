@@ -1,6 +1,6 @@
 # Experiment & Code Plan — Self-Hosted LLM Architectures under an Agentic AutoML Workload
 
-**Status:** build plan, v6 (2026-08-10) — training budget resolved to 45 s by measurement (D15)
+**Status:** build plan, v7 (2026-08-11) — subjects changed after G1 failed on the server (D16)
 **Owner:** Houcen Liu
 **Source of truth for design:** `greenlab_proposal/` (Liu_ProjectProposal.tex and sections)
 **This document:** how the proposal becomes runnable code, plus the deviations that must be reported.
@@ -21,8 +21,8 @@ either complete or as a clearly-marked stub with a `TODO(hw)` where real hardwar
 
 ## 1. Decisions and deviations from the proposal
 
-Fifteen things changed between the proposal and reality. D1-D5 came from reading the `autoresearch`
-repository and the available hardware; **D6-D15 came from actually running the pilot**, and D6 in
+Sixteen things changed between the proposal and reality. D1-D5 came from reading the `autoresearch`
+repository and the available hardware; **D6-D15 came from running the pilot, and D16 from the server**, and D6 in
 particular would have invalidated the headline analysis had it gone unnoticed. All of them need a
 line in the final report's *Experiment Execution* and *Threats to Validity* sections.
 
@@ -360,6 +360,61 @@ that; check on the server whether the planned 120 s flattens it.
 
 All of this re-runs on the server regardless — the RTX 4000 Ada is slower than the pilot GPU, so
 G11 and G8' are both repeated there before Phase 1.
+
+### D16 — Gate G1 failed on Qwen3.6. The subjects change to the Qwen3 pair. (from the server)
+
+**What happened.** Both Qwen3.6 arms exceed the 20475 MiB (20.0 GiB) card *on weights alone*,
+before any KV cache exists:
+
+| candidate | on disk | GiB | why |
+|---|---|---|---|
+| cyankiwi/Qwen3.6-27B-AWQ-INT4 | 20.46 GB | **19.05** | 3.85B params left in 16-bit |
+| cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit | ~24 GB | **~22.4** | same, plus more experts |
+
+**Root cause.** Qwen3.6 is **multimodal**. The quantizer's `ignore` list excludes the entire vision
+tower, `lm_head`, and every `linear_attn.in_proj` projection, leaving 3.85B parameters at 16 bits
+(~7.7 GB) on top of 12.7 GB of int4 weights. The Hub metadata shows it directly:
+`I32: 25.47B, F16: 3.33B, BF16: 0.52B`. **No `--max-model-len` setting rescues this** — the failure
+is in weights, not cache.
+
+**Why the estimate was wrong.** `approx_weights_gb` was inferred from parameter count and
+bit-width, which assumes everything gets quantized. It doesn't. `pin_models.py` now reads the Hub's
+authoritative `usedStorage`, reports the dtype breakdown, warns when >0.5B parameters remain
+unquantized or when the checkpoint is multimodal, and **fails G1 before downloading**. The old
+behaviour cost 44 GB of transfer to discover.
+
+**Qwen3-32B was also evaluated and rejected on arithmetic.** At 18.0 GiB of weights it leaves ~2.0
+GiB. Qwen3-32B has 64 layers x 8 KV heads x 128 dim, so fp8 KV costs ~131 KB/token; the workload
+needs >=6k context (~2.5k prompt + ~2k completion), i.e. ~0.8 GiB, plus ~0.4 GiB CUDA context and
+~0.7 GiB activations. Total ~19.9 GiB against a 19.99 GiB card. Unservable, not merely tight.
+
+**Decision: Qwen3-30B-A3B (MoE) vs Qwen3-14B (dense), both AWQ int4.**
+
+| arm | repo | GiB | active params |
+|---|---|---|---|
+| MoE | QuixiAI/Qwen3-30B-A3B-AWQ | 15.6 | ~3B of 30.5B |
+| dense | Qwen/Qwen3-14B-AWQ | 9.3 | 14.8B of 14.8B |
+
+**The research question survives, in a arguably stronger form.** Both models fit the same card, so
+the contrast becomes the one a self-hoster actually faces: *given one 20 GB GPU, does a 30B sparse
+model activating ~3B parameters per token beat a 14B dense model activating all of them?* That is
+the proposal's claim — "large-model quality at small-model inference cost" — tested at 2x the total
+capacity against 4.7x fewer active parameters. It is more practitioner-relevant than the original
+27B-vs-35B pairing, which contrasted two models of near-identical active cost.
+
+**Two limitations to report.**
+
+1. *Publisher asymmetry.* No single publisher ships AWQ builds of both models, so the dense arm is
+   official Qwen and the MoE is a third party. Same method, same bit-width; the difference is
+   calibration corpus. Second-order, but it belongs in *Threats to Validity* and the run-table
+   metadata records both repos and revisions.
+2. *Unequal total capacity.* 30.5B vs 14.8B. If the MoE wins, sparsity and capacity cannot be fully
+   separated. State this plainly: the study answers "which is better per joule on one card", not
+   "is sparsity better at matched capacity" — the latter needed Qwen3-32B, which does not fit.
+
+**Reporting consequence.** The proposal's subject section changes family (Qwen3.6 -> Qwen3) and the
+sparsity contrast is re-specified as above. This needs Vincenzo's sign-off; the measurements are
+reproducible with `scripts/pin_models.py` and take under a minute.
 
 ---
 

@@ -22,16 +22,24 @@ REVISION="${REVISION:?set REVISION to the pinned commit sha}"
 
 export CUDA_VISIBLE_DEVICES="$PROPOSER_GPU"
 
+# Tunables. Override from the environment rather than editing this file, so the
+# same script serves both arms with identical settings (the D3 fairness rule).
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.94}"
+# `--disable-log-requests` was removed in newer vLLM; request logging is on by
+# default and harmless. Add version-specific flags here instead of inline.
+VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
+
 exec vllm serve "$MODEL" \
   --revision "$REVISION" \
   --served-model-name "$ARM" \
   --port "$PORT" \
-  --max-model-len 16384 \
-  --gpu-memory-utilization 0.94 \
+  --max-model-len "$MAX_MODEL_LEN" \
+  --gpu-memory-utilization "$GPU_MEM_UTIL" \
   --kv-cache-dtype fp8 \
   --enforce-eager \
-  --disable-log-requests \
-  --max-num-seqs 1
+  --max-num-seqs 1 \
+  $VLLM_EXTRA_ARGS
 # --max-num-seqs 1: the harness is strictly sequential. Continuous batching adds
 # nondeterminism for no throughput benefit here, and costs KV cache we cannot
 # spare on a 20 GB card.
