@@ -31,11 +31,28 @@ Also settle: sustained overnight access, sudo (EnergiBridge needs root), and dis
 ### 1.1 Get the code and environment on the box
 
 ```bash
-git clone <your-repo> ~/green-lab-experiment
-cd ~/green-lab-experiment
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r experiment/requirements.txt
-pip install vllm            # or llama-cpp-python if D3 sends you that way
+git clone <your-repo> ~/autoresearch-energy
+cd ~/autoresearch-energy
+bash setup_server.sh
+```
+
+**Install vLLM in a SEPARATE virtualenv.** vLLM pins its own torch build; installing
+it beside the harness will replace the torch that training uses, and a silently
+downgraded CUDA build is a miserable thing to debug at 2 a.m.
+
+```bash
+python3 -m venv .venv-serve
+.venv-serve/bin/pip install --upgrade pip
+.venv-serve/bin/pip install vllm            # or llama-cpp-python, per D3
+.venv-serve/bin/python -c "import torch, vllm; print(torch.__version__, vllm.__version__)"
+```
+
+The serving scripts only need `vllm` on PATH, so activate `.venv-serve` in the shell
+that serves and `.venv` in the shell that runs the experiment. Confirm the harness
+venv is untouched afterwards:
+
+```bash
+.venv/bin/python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
 Install EnergiBridge per its README and confirm it runs as root:
@@ -96,7 +113,7 @@ both arms. **AWQ and GPTQ of the same model are not the same subject** — recor
 ```bash
 export DENSE_MODEL=<pinned int4 repo>
 export REVISION=<sha>
-PROPOSER_GPU=1 ./serving/serve_vllm.sh dense 8000
+PROPOSER_GPU=1 bash serving/serve_vllm.sh dense 8000
 ```
 
 ### 2.3 Probe before you trust it
@@ -124,7 +141,7 @@ python scripts/vram_check.py --endpoint http://127.0.0.1:8000/v1 --model dense -
 python serving/manager.py --stop
 
 export MOE_MODEL=<pinned int4 repo>
-PROPOSER_GPU=1 ./serving/serve_vllm.sh moe 8001
+PROPOSER_GPU=1 bash serving/serve_vllm.sh moe 8001
 python scripts/probe_proposer.py --profile profiles/server.yaml \
     --model moe --endpoint http://127.0.0.1:8001/v1 --timeout 600
 python scripts/vram_check.py --endpoint http://127.0.0.1:8001/v1 --model moe --gpu 1
@@ -306,7 +323,7 @@ report, not housekeeping.
 
 ```bash
 python serving/manager.py --stop
-GGUF_PATH=<pinned Q4_K_M gguf> THREADS=$(nproc) ./serving/serve_cpu.sh dense 8000
+GGUF_PATH=<pinned Q4_K_M gguf> THREADS=$(nproc) bash serving/serve_cpu.sh dense 8000
 ```
 
 Then run the 4 cells nearest the Phase-1 frontier at 2 repetitions.

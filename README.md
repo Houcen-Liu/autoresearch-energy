@@ -26,6 +26,9 @@ training joules are separate measurements rather than modelled estimates.
 ## Quick start
 
 ```bash
+bash setup_server.sh          # does everything below, with verification
+
+# or by hand:
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
@@ -52,6 +55,11 @@ python analysis/figures.py   --tidy ../experiments/synthetic/tidy.csv \
 The numbers are invented; the schema, file layout and code paths are the real ones.
 
 ---
+
+> **Shell scripts and the executable bit.** This repo is authored on Windows, which
+> has no executable bit, so `.sh` files may arrive mode `644`. Always invoke them as
+> `bash script.sh`, or set the bit once with
+> `git update-index --chmod=+x setup_server.sh experiment/serving/*.sh`.
 
 ## Layout
 

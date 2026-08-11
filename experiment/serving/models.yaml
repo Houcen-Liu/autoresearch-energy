@@ -1,26 +1,43 @@
-# Pinned proposer subjects. Fill `revision` in week 1 (day 1) and never change it afterwards.
-# Both arms MUST use the same quantizer and the same serving stack -- see EXPERIMENT_PLAN.md D3.
+# Pinned proposer subjects.
+#
+# FAIRNESS RULE (D3): both arms must use the SAME quantizer, the SAME serving
+# stack and the SAME max-model-len. An AWQ and a GPTQ build of the same weights
+# are not the same subject. Prefer a matched pair from one publisher.
+#
+# Candidate matched pairs (verified to exist; pick ONE row and pin the revision):
+#
+#   publisher   dense                              moe
+#   ---------   --------------------------------   ---------------------------------
+#   cyankiwi    cyankiwi/Qwen3.6-27B-AWQ-INT4      cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit
+#   QuantTrio   QuantTrio/Qwen3.6-27B-AWQ          QuantTrio/Qwen3.6-35B-A3B-AWQ
+#
+# Get the exact revision before downloading, and record it here:
+#   huggingface-cli download <repo> --revision main --quiet 2>/dev/null
+#   python -c "from huggingface_hub import HfApi; \
+#              print(HfApi().model_info('<repo>').sha)"
+#
+# NOT usable on RTX 4000 Ada (sm_89):
+#   *-NVFP4        NVFP4 needs Blackwell (sm_100+)
+#   Qwen/*-FP8     ~28 GB of weights, exceeds 20 GB
+#   *-21.2GB       exceeds the card outright
 
 dense:
   base_repo: Qwen/Qwen3.6-27B
-  quant_repo: TODO                 # int4 AWQ or GPTQ community quant
-  revision: TODO
+  quant_repo: TODO                 # e.g. cyankiwi/Qwen3.6-27B-AWQ-INT4
+  revision: TODO                   # exact sha, not "main"
   quantizer: TODO                  # awq | gptq | gguf-q4_k_m
   approx_weights_gb: 15
 
 moe:
   base_repo: Qwen/Qwen3.6-35B-A3B
-  quant_repo: TODO
+  quant_repo: TODO                 # e.g. cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit
   revision: TODO
-  quantizer: TODO
-  approx_weights_gb: 18            # TIGHT on a 20 GB card -- gate G1
+  quantizer: TODO                  # MUST match dense
+  approx_weights_gb: 18            # TIGHT on a 20.4 GB card -- this is gate G1
 
-# Pre-registered backup pair if G1 fails on the MoE (loses sparse-vs-dense, becomes size contrast)
+# Pre-registered backup if G1 fails on the MoE. Loses the sparse-vs-dense
+# contrast and becomes a size contrast -- supervisor's call, made before G1.
 backup_dense:
   base_repo: ibm-granite/granite-4.1-8b-instruct
 backup_large:
   base_repo: ibm-granite/granite-4.1-30b-instruct
-
-# NOT usable on RTX 4000 Ada (sm_89):
-#   nvidia/Qwen3.6-35B-A3B-NVFP4   -- NVFP4 requires Blackwell (sm_100+)
-#   Qwen/Qwen3.6-27B-FP8           -- ~28 GB of weights, exceeds 20 GB
