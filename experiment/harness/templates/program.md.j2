@@ -7,6 +7,20 @@ file and nothing else. Each of your proposals is trained for a fixed
 **{{ train_seconds }} seconds of wall clock** and scored on a held-out 5 000-image
 validation split. Higher is better.
 
+## What the budget actually buys
+
+Measured on this exact hardware with the unmodified file below:
+
+| | |
+|---|---|
+| baseline validation accuracy | {{ baseline_val_acc }} |
+| epochs completed in {{ train_seconds }} s | {{ baseline_epochs }} |
+| optimiser steps completed | {{ baseline_steps }} |
+
+This is a **short-budget regime**. A schedule written for hundreds of epochs will
+never reach its useful range. Anything you propose is trained from scratch for
+{{ train_seconds }} seconds -- there is no pretraining and no warm start.
+
 ## Rules
 
 1. `train.py` is the only file you may change. `prepare_cifar.py` is off limits.

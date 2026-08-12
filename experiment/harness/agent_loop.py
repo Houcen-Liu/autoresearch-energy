@@ -238,6 +238,14 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         prompt = render_program_md(
             train_seconds=train_seconds, patience=patience, loop_budget=loop_budget,
             eps=eps, history=history_table(history), current_source=repo.read(),
+            # Measured facts about the budget, not advice. Without these the
+            # agent has no idea that the budget buys ~43 epochs, and proposes
+            # schedules built for hundreds (CosineAnnealingLR(T_max=100) was
+            # proposed repeatedly). The harness knows these numbers; the agent
+            # cannot see them.
+            baseline_val_acc=f"{base['val_acc']:.4f}",
+            baseline_epochs=base.get("epochs_completed", "?"),
+            baseline_steps=base.get("steps", "?"),
         )
         if guard_feedback:
             prompt += "\n\n## Feedback on your last proposal\n\n" + guard_feedback

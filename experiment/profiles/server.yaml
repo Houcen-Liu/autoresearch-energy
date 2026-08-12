@@ -22,8 +22,19 @@ proposer:
   endpoints:
     dense: http://127.0.0.1:8000/v1
     moe:   http://127.0.0.1:8001/v1
-  temperature: 0.0
-  top_p: 1.0
+  # SAMPLING IS A SEARCH PARAMETER, NOT A REPRODUCIBILITY KNOB.
+  # temperature 0.0 was the original choice, for determinism. Measured
+  # consequence: over a 10-iteration session the proposals had 0.982 mean
+  # pairwise similarity, with one consecutive pair byte-identical. Under greedy
+  # patience the recipe resets to baseline after each failure, so the model sees
+  # an almost identical prompt every iteration and, at zero temperature, returns
+  # an almost identical answer. Ten experiments bought one idea, repeated -- and
+  # the loop_budget factor (10 vs 20) measured nothing.
+  # 0.7 is the usual operating point for proposal diversity in this kind of loop.
+  # Identical for both arms, so the contrast is unaffected; reproducibility is at
+  # the level of the distribution, with the seed recorded per session.
+  temperature: 0.7
+  top_p: 0.95
   max_tokens: 8192
 
   # One request may take this long...

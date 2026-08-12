@@ -1142,3 +1142,62 @@ excludes phases shorter than `--min-window-s` (default 5 s) and prints every
 window, so the exclusion is visible rather than silent. The gate previously failed
 on this single artifact while all nine real windows passed -- an example of a
 correct measurement defeated by an aggregate that treated a non-event as an event.
+
+---
+
+## D22 — temperature 0 made the search degenerate (2026-08-12)
+
+Phase 1 was stopped after 3 completed dense sessions. All three ended
+`no_progress: true`, 0 kept, with **no near-misses**: best observed accuracies were
+-2.72, -0.56 and -7.84 pp against baseline, session means 0.39-0.53.
+
+The cause is not the proposer. Pairwise similarity of the 10 proposals in one
+session:
+
+| pair | similarity |
+|---|---|
+| 1-2 | 0.969 |
+| 2-3 | 0.999 |
+| 6-7 | **1.000** |
+| mean over all pairs | **0.982** |
+
+**The session bought one idea, ten times.** `temperature: 0.0` was chosen for
+reproducibility. Under greedy patience the recipe resets to the baseline after
+every failure, so the prompt is nearly identical each iteration, and a
+zero-temperature model returns a nearly identical answer. Two consecutive
+proposals were byte-identical.
+
+This also silently nullified a factor: `loop_budget` (10 vs 20) could not measure
+anything, because iterations 11-20 were the same proposal again.
+
+**Fix: `temperature: 0.7`, `top_p: 0.95`** -- the usual operating point for
+proposal diversity in a propose-evaluate-keep loop. Identical for both arms, so
+the contrast is unaffected. Reproducibility now lives at the level of the
+distribution rather than the single sample, with the seed recorded per session.
+
+### Also: the agent could not see how short the budget is
+
+The prompt stated "45 seconds" but never what that buys. The agent repeatedly
+proposed `CosineAnnealingLR(T_max=100)` -- a schedule for a 100-epoch run -- when
+the budget delivers ~43 epochs. The template now reports the measured baseline
+accuracy, epochs and steps. These are facts the harness holds and the agent cannot
+observe, the same category as D19 (data contract) and D21 (library versions).
+
+### What was deliberately NOT changed
+
+The dense model switched `SGD(lr=0.01, momentum=0.9)` to `AdamW(lr=0.01)`,
+keeping a learning rate ~10x too large for Adam, and collapsed to 0.09 -- chance
+level for 10 classes. It also applied `adjust_brightness`/`adjust_saturation` to
+data the contract states is already normalised.
+
+These are *reasoning* failures, and reasoning quality is the dependent variable.
+Adding "change one thing at a time" or "retune the LR when changing optimiser"
+would be doing the agent's work and tuning the experiment toward a preferred
+result. The line held throughout: **give the agent facts it cannot observe; never
+give it the judgement being measured.**
+
+### Cost
+
+3 of 24 runs discarded, ~1 hour. Phase 1 restarts from zero. Calibration (D18)
+is unaffected -- `train.py` changed only in comments and the sampling change does
+not touch the workload.
