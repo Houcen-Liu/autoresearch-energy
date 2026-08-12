@@ -9,7 +9,13 @@ nvml.csv
 energibridge*.csv
 
 # Model weights and serving logs
-models/
+# Anchored to the repo root with a leading slash. An unanchored `models/`
+# matches at ANY depth, and Git's ignore matching is case-insensitive on
+# Windows -- so it silently swallowed the vendored experiment-runner's
+# ConfigValidator/Config/Models/, EventManager/Models/ and
+# ProgressManager/RunTable/Models/ packages. The repo cloned "successfully"
+# and failed at import time on the server.
+/models/
 *.gguf
 *.safetensors
 vllm_*.log
