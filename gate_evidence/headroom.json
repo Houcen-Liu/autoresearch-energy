@@ -1,0 +1,120 @@
+{
+  "profile": "profiles/server.yaml",
+  "repeats": 2,
+  "min_snr": 3.0,
+  "recommended_train_seconds": 45.0,
+  "recommendation_rule": "cheapest budget clearing min_snr",
+  "max_snr_train_seconds": 45.0,
+  "budgets": [
+    {
+      "train_seconds": 45.0,
+      "step_ratio": 1.184,
+      "reference_epochs": 49.5,
+      "instrument_ok": true,
+      "baseline_mean": 0.7634,
+      "reference_mean": 0.9161,
+      "headroom_pp": 15.27,
+      "pooled_sd_pp": 0.12,
+      "snr": 126.81,
+      "baseline_runs": [
+        {
+          "val_acc": 0.7622,
+          "epochs_completed": 43,
+          "steps": 15195,
+          "train_seconds": 45.01,
+          "peak_vram_mb": 305,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        },
+        {
+          "val_acc": 0.7646,
+          "epochs_completed": 42,
+          "steps": 15084,
+          "train_seconds": 45.01,
+          "peak_vram_mb": 305,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        }
+      ],
+      "reference_runs": [
+        {
+          "val_acc": 0.9162,
+          "epochs_completed": 50,
+          "steps": 18006,
+          "train_seconds": 45.0,
+          "peak_vram_mb": 1421,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        },
+        {
+          "val_acc": 0.916,
+          "epochs_completed": 49,
+          "steps": 17846,
+          "train_seconds": 45.0,
+          "peak_vram_mb": 1421,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        }
+      ]
+    },
+    {
+      "train_seconds": 240.0,
+      "step_ratio": 1.23,
+      "reference_epochs": 276,
+      "instrument_ok": true,
+      "baseline_mean": 0.7801,
+      "reference_mean": 0.9233,
+      "headroom_pp": 14.32,
+      "pooled_sd_pp": 0.54,
+      "snr": 26.64,
+      "baseline_runs": [
+        {
+          "val_acc": 0.7852,
+          "epochs_completed": 225,
+          "steps": 79524,
+          "train_seconds": 240.01,
+          "peak_vram_mb": 305,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        },
+        {
+          "val_acc": 0.775,
+          "epochs_completed": 225,
+          "steps": 79347,
+          "train_seconds": 240.01,
+          "peak_vram_mb": 305,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        }
+      ],
+      "reference_runs": [
+        {
+          "val_acc": 0.9216,
+          "epochs_completed": 276,
+          "steps": 97669,
+          "train_seconds": 240.0,
+          "peak_vram_mb": 1421,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        },
+        {
+          "val_acc": 0.925,
+          "epochs_completed": 276,
+          "steps": 97779,
+          "train_seconds": 240.0,
+          "peak_vram_mb": 1420,
+          "errored": false,
+          "exit": 0,
+          "checkpoint": true
+        }
+      ]
+    }
+  ]
+}
