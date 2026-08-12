@@ -1086,3 +1086,59 @@ The one evaluated iteration scored 0.6662 against a 0.7706 baseline: it added
 horizontal flips, brightness and contrast jitter, and a cosine schedule with
 `T_max=100` when the run only reaches ~43 epochs. A real change, correctly
 reverted. The proposer is not producing no-ops.
+
+---
+
+## D20 — G3, G4, G5 passed on the dense arm (2026-08-11)
+
+### G3 — the loop works
+
+Baseline 0.7494 -> best 0.8178 (**+6.8 pp**), test 0.8129. Of 5 iterations: 1 kept,
+3 reverted, 1 crashed, 0 infrastructure errors. Documenting the data contract
+(D19) took the crash rate from 4/5 to 1/5.
+
+**A decision worth reporting.** Iteration 5 scored 0.8296 against the kept 0.8178
+-- an improvement of 1.18 pp, just under the measured EPS of 1.23 pp -- and was
+correctly reverted. Under the pilot's EPS of 0.73 pp it would have been kept, on
+evidence indistinguishable from re-running the same recipe. This is the noise
+floor earning its place in the design, on a real decision rather than in
+principle.
+
+Per-iteration accuracy ranged 0.4266 to 0.8296. The proposer makes large, genuine
+changes; most are worse; the protocol's job is to keep the one that is not.
+
+### G4 — energy reconstructs
+
+| quantity | J |
+|---|---|
+| E_train | 28 439 |
+| E_prop | 31 765 |
+| accounted | 49 006 |
+| gap | 11 198 (18.6 %) |
+| GPU total | 60 204 |
+
+Gap is cooldown, checkpoint I/O and evaluation between instrumented phases -- well
+inside the 50 % tolerance.
+
+**E_wasted = 38 242 J of 60 204 J: 64 % of session energy produced nothing that
+was kept.** That is not a defect, it is the phenomenon under study, and it is the
+number that motivates asking which proposer architecture wastes less.
+
+### G5 — device attribution is sound
+
+| phase | hot GPU | cold GPU | ratio |
+|---|---|---|---|
+| propose | 112.8 W (GPU 1) | 16.8 W | 6.73 |
+| train | 115.7 W (GPU 0) | 24.1 W | 4.81 |
+
+Per-window ratios span 4.69-7.65 with no exceptions. Per-device attribution
+measures what it claims to.
+
+**One window was excluded, and the reason matters.** Iteration 2's training window
+lasted 2.6 s because the recipe crashed: GPU 0 read 15.9 W (never loaded) while
+GPU 1 read 69.6 W (still cooling from the preceding request), inverting the ratio
+to 0.23. That window contains no training to attribute. `align_check.py` now
+excludes phases shorter than `--min-window-s` (default 5 s) and prints every
+window, so the exclusion is visible rather than silent. The gate previously failed
+on this single artifact while all nine real windows passed -- an example of a
+correct measurement defeated by an aggregate that treated a non-event as an event.
