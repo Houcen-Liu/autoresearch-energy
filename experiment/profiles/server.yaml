@@ -61,13 +61,15 @@ energy:
   energibridge_bin: energibridge
 
 loop:
-  # Pilot value, pending re-measurement on this hardware (gate G8').
-  # Pilot: 8 repeats at 45 s with a 30 s cooldown -> detrended SD 0.0037,
-  # EPS = 2 x SD = 0.0073. The same series without cooldown gave SD 0.0101,
-  # i.e. thermal drift inflated the apparent noise 2.7x (D11/D13).
-  #     python scripts/noise_floor.py --profile profiles/server.yaml --repeats 8
-  # then set eps to the suggested value and record it in the report.
-  eps: 0.0073
+  # MEASURED ON THIS HARDWARE, 2026-08-11 (gate G8' passed, D18).
+  # 8 repeats at 45 s with a 120 s cooldown -> detrended SD 0.0062,
+  # EPS = 2 x SD = 0.0123. raw SD == detrended SD, so the cooldown is doing its
+  # job: no thermal drift left in the series (contrast the pilot, where dropping
+  # the cooldown inflated apparent noise 2.7x -- D11/D13).
+  # The RTX 4000 Ada is noisier than the pilot GPU: 0.62 pp vs 0.37 pp.
+  # DO NOT revert to the pilot's 0.0073 -- on this machine that sits below the
+  # noise floor and "kept mutation" would stop meaning anything.
+  eps: 0.0123
   cooldown_s: 120
   # Above this share of INFRASTRUCTURE errors (timeouts, transport) a session is
   # quarantined and re-run rather than analysed. Agent-side failures -- contract

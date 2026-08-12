@@ -970,3 +970,62 @@ Attention kernels are JIT-compiled for sm89 on this machine. A replication on
 different silicon, or with a system CUDA toolkit, gets different kernels and
 therefore different throughput and energy. Both arms share one build, so the
 *contrast* is sound; absolute joules are hardware- and stack-specific.
+
+---
+
+## D18 — server calibration: budget confirmed, EPS re-measured (2026-08-11)
+
+Gates G11 (headroom) and G8' (noise floor) run on the RTX 4000 Ada. Both pass.
+The pilot's choices survive; its *numbers* do not, and the numbers are what the
+loop depends on.
+
+### Budget: 45 s confirmed
+
+| budget | baseline | reference | headroom | steps (baseline) |
+|---|---|---|---|---|
+| 45 s | 0.7634 | 0.9161 | **+15.27 pp** | ~15.1k |
+| 240 s | 0.7801 | 0.9233 | +14.32 pp | ~79.4k |
+
+5.3x the compute buys 1.7 pp of baseline accuracy and *reduces* headroom. The
+workload saturates, exactly as it did on the pilot, so the cheap budget is not a
+compromise -- it is the better instrument.
+
+**Correction to the reported SNR.** `headroom_check.py` estimates noise from 2
+repeats and reported SNR 126.8 at 45 s. The 8-repeat noise floor measured 0.62 pp,
+5x larger. The honest figures are:
+
+| budget | headroom | noise (n=8) | SNR |
+|---|---|---|---|
+| 45 s | 15.27 pp | 0.62 pp | **24.6** |
+| 240 s | 14.32 pp | 0.54 pp | 26.5 |
+
+The two budgets are within 8 % of each other on signal-to-noise. 45 s wins on
+cost (~10 vs ~53 GPU-hours for Phase 1) and on sensitivity to the factor under
+study (proposer share of session wall-clock ~40-57 % rather than ~17 %, D15/D17).
+**Report 24.6, not 126.8.** A 2-repeat noise estimate has one degree of freedom
+and is not a measurement.
+
+### EPS: 0.0073 -> 0.0123
+
+8 repeats at 45 s, 120 s cooldown: mean 0.7614, detrended SD 0.0062, range
+0.7520-0.7736 (2.16 pp spread). EPS = 2 x SD = **0.0123**.
+
+Raw SD equals detrended SD to four decimals, so there is no residual thermal
+trend -- the 120 s cooldown is sufficient on this hardware. Step count varies by
+only 0.6 % (CV) across repeats, confirming the wall-clock budget delivers a
+consistent amount of work; the accuracy spread is optimisation stochasticity, not
+throughput variation.
+
+This machine is ~1.7x noisier than the pilot (0.62 pp vs 0.37 pp). Carrying the
+pilot's 0.0073 over would have put the keep/revert threshold *below* the noise
+floor, and roughly half of "improvements" would have been coin flips.
+
+### G10 — the training GPU is genuinely busy
+
+94 % mean utilisation at 116 W sustained during training. The inner workload is
+GPU-bound, so per-device energy attribution measures what it claims to.
+
+### Frozen for Phase 1
+
+`train_seconds: 45`, `eps: 0.0123`, `cooldown_s: 120`, `workload/train.py` at the
+committed sha. Any change to these invalidates the sessions already run.
