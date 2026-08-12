@@ -35,6 +35,17 @@ import torch.nn.functional as F
 
 from prepare_cifar import load_splits
 
+# ENVIRONMENT -- this file runs against these exact versions.
+#   torch 2.13, torchvision 0.28, Python 3.12, CUDA 13.0, one NVIDIA GPU.
+# Several APIs common in older code have been REMOVED or changed. Do not use:
+#   * `verbose=` on any torch.optim.lr_scheduler.* constructor  -> removed
+#   * torchvision.transforms.functional.pad(fill=...) with a non-int/tuple fill
+#   * torch.cuda.amp.autocast(...)      -> use torch.amp.autocast("cuda", ...)
+#   * Variable(), .data, torch.set_grad_enabled as a decorator
+# If you are unsure whether an argument still exists in torch 2.13, leave it out.
+# A proposal that raises TypeError scores nothing: the iteration is spent, the
+# energy is spent, and the recipe is reverted.
+
 # ---------------------------------------------------------------- fixed budget
 TRAIN_SECONDS = 240.0          # DO NOT MODIFY -- enforced by harness/guards.py
 
