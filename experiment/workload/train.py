@@ -95,6 +95,17 @@ def main() -> int:
     np.random.seed(SEED)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
+    # DATA CONTRACT -- read this before changing anything about the inputs.
+    #   x_train / x_val : float32, shape (N, 3, 32, 32), NCHW, ALREADY
+    #                     normalised per channel (mean/std applied in
+    #                     prepare_cifar.py). Do NOT divide by 255 and do NOT
+    #                     subtract a mean again -- the data is not raw uint8.
+    #   y_train / y_val : int64 class indices in [0, 10).
+    #   Channel stats, if you need them: mean [0.4914, 0.4822, 0.4465],
+    #   std [0.2470, 0.2435, 0.2616]. They are already applied.
+    # A per-channel tensor must be shaped (1, 3, 1, 1) to broadcast against
+    # NCHW; a bare (3,) tensor broadcasts against the width axis and raises
+    # "size of tensor a (32) must match tensor b (3) at dimension 3".
     d = load_splits(args.data_dir)
     x_tr = torch.from_numpy(d["x_train"])
     y_tr = torch.from_numpy(d["y_train"])

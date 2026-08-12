@@ -1029,3 +1029,60 @@ GPU-bound, so per-device energy attribution measures what it claims to.
 
 `train_seconds: 45`, `eps: 0.0123`, `cooldown_s: 120`, `workload/train.py` at the
 committed sha. Any change to these invalidates the sessions already run.
+
+---
+
+## D19 — G3 first attempt failed: an undocumented data contract (2026-08-11)
+
+Dense arm, 5 iterations: 0 kept, 1 reverted, **4 crashed**, 0 infra errors.
+
+All four crashes were the same line:
+
+```
+RuntimeError: The size of tensor a (32) must match the size of tensor b (3)
+              at non-singleton dimension 3
+```
+
+The proposer added per-channel normalisation:
+
+```python
+x_tr = (x_tr / 255.0 - torch.tensor(mean, ...)) / torch.tensor(std, ...)
+```
+
+Two errors in one line. `load_splits()` already returns **normalised float32 NCHW**
+data, so this double-normalises; and a bare `(3,)` tensor broadcasts against the
+width axis of an `(N, 3, 32, 32)` tensor rather than the channel axis, so it
+raises before doing any damage.
+
+**This was a harness defect, not a model failure.** `train.py` said only "Data
+comes only from `prepare_cifar.load_splits()`" and never stated the shape, dtype,
+or that normalisation was already applied. `prepare_cifar.py` is not in the
+prompt, so the information did not exist anywhere the proposer could reach. A
+human with the same context would have guessed the same way.
+
+Left unfixed it would be a serious validity threat: with 4 of 5 iterations
+crashing, a session measures whether the model can guess an undocumented data
+contract, not whether it can improve a training recipe. Sessions would be
+dominated by a floor effect that has nothing to do with sparsity.
+
+**Fix.** `train.py` now documents the contract at the load site: shapes, dtypes,
+that normalisation is already applied, the channel statistics, and the
+`(1, 3, 1, 1)` reshape needed to broadcast against NCHW. **Comments only** -- not
+one executable line changed, so D18's headroom, noise floor and EPS remain valid
+and do not need re-measuring.
+
+### The crash-feedback loop works
+
+Worth recording because it was a pilot fix under test. Iteration 2 crashed; the
+traceback was fed into iteration 3's prompt; iteration 3 *changed* its approach
+(renamed the constants, added momentum) rather than re-emitting byte-identical
+code. It fixed the wrong thing, because the traceback says the shapes disagree
+but not which one is right -- with no data contract there was nothing to reason
+from. The mechanism is sound; it was starved of information.
+
+### Also noted
+
+The one evaluated iteration scored 0.6662 against a 0.7706 baseline: it added
+horizontal flips, brightness and contrast jitter, and a cosine schedule with
+`T_max=100` when the run only reaches ~43 epochs. A real change, correctly
+reverted. The proposer is not producing no-ops.
