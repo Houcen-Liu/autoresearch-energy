@@ -4,10 +4,16 @@ Everything measured so far that belongs in the report, organised by **where it g
 in the paper** rather than by when it happened. `EXPERIMENT_PLAN.md` keeps the
 chronological record (D1-D20); this file is the writing source.
 
-Status: pilot complete (laptop, RTX 3080 16 GB), server gates G1/G3/G4/G5/G8'/G10/G11
-passed (2x RTX 4000 Ada 20 GB). Phase 1 not yet run. **Nothing here answers the
-research question** -- these are one-session-per-arm observations and calibration
-results. They fix the method and flag what to watch.
+Status: pilot complete (laptop, RTX 3080 16 GB); server gates G1/G3/G4/G5/G6/G8'/
+G10/G11 passed (2x RTX 4000 Ada 20 GB); Phase 1 **restarted** after a first
+attempt was discarded at 3/24 runs (section 2.4). **Nothing here answers the
+research question** -- these are calibration results and one-session-per-arm
+observations. They fix the method and flag what to watch.
+
+**If you read only one thing:** section 2.4. A reproducibility choice
+(`temperature: 0`) turned a 10-iteration search into one proposal repeated ten
+times, voided an experimental factor, and was invisible to every health metric
+the harness reports.
 
 ---
 
@@ -23,6 +29,10 @@ results. They fix the method and flag what to watch.
 | SNR at 45 s | 24.6 | headroom / 8-repeat noise |
 | cooldown | 120 s | G8', no residual drift |
 | training GPU utilisation | 94 % at 116 W | G10 |
+| true GPU idle | 8.6 W / 7.9 W | G6 |
+| resident-model standby | ~13 W above idle | G5/G6 |
+| model swap time | 25 s | Day 4 |
+| proposal similarity at temperature 0 | **0.982 mean pairwise** | section 2.4 |
 | dense throughput | 35 tok/s | G1 probe |
 | MoE throughput | 69 tok/s | G1 probe |
 | dense proposal latency | 47-59 s | G1, G3 |
@@ -94,7 +104,48 @@ back-to-back is not variance, it is drift.** Detrend, and test for monotonicity
 (Spearman rho) rather than slope alone -- a slope test on a non-monotonic series
 produced a false drift alarm during the pilot.
 
-### 2.4 Infrastructure failure and agent failure are different things
+### 2.4 Sampling temperature is a search parameter, not a reproducibility knob
+
+**The strongest methodological finding so far, and the least expected.**
+
+`temperature: 0.0` was chosen so sessions would be reproducible. Measured
+consequence, over one 10-iteration session:
+
+| proposal pair | similarity |
+|---|---|
+| 1-2 | 0.969 |
+| 2-3 | 0.999 |
+| 6-7 | **1.000 (byte-identical)** |
+| mean over all 45 pairs | **0.982** |
+
+The session bought **one idea, ten times**. Under greedy patience the recipe
+resets to baseline after every failure, so the prompt is nearly identical each
+iteration and a zero-temperature model returns a nearly identical answer.
+
+Two consequences, neither visible in any conventional health metric:
+
+1. All three completed sessions ended `no_progress: true`, 0 kept, with **no
+   near-misses** -- best observed accuracies -2.72, -0.56, -7.84 pp against
+   baseline. The floor was the harness, not the proposer.
+2. **`loop_budget` (10 vs 20) silently measured nothing.** Iterations 11-20 were
+   the same proposal again. An entire experimental factor was void.
+
+The sessions looked perfectly healthy throughout: 0 errors, 0 infrastructure
+failures, `valid: true`, `alignment_ok: true`, sensible energy totals. Only
+diffing the proposals against each other revealed it.
+
+After changing to `temperature: 0.7, top_p: 0.95`, the first session kept on
+**iteration 1**: 0.7656 -> 0.8366, **+7.1 pp**.
+
+**Generalisable claim for the paper.** In a propose-evaluate-keep loop, greedy
+selection restores the same input after every rejection, so a deterministic
+proposer is a *degenerate search*: N experiments cost N times the energy of one
+and return one result. Any study of agentic loops that fixes temperature at 0 for
+reproducibility should check proposal diversity before trusting its iteration
+count. Reproducibility belongs at the level of the distribution -- fixed seed,
+recorded sampling parameters -- not the single sample.
+
+### 2.5 Infrastructure failure and agent failure are different things
 
 The error taxonomy separates:
 
@@ -184,7 +235,60 @@ rate fell from 4/5 to 1/5.
 **Generalisable:** when an agent edits a file, everything it needs to reason about
 must be *in that file*. Anything in an unshown import is invisible.
 
-### 4.3 Crash rate may be a dependent variable, not noise
+### 4.3 What the agent may be told, and what it must work out
+
+Three times the experiment was floored by information the agent could not
+observe, and each time the fix was comments only -- no executable line changed,
+so the D18 calibration remained valid throughout.
+
+| | missing information | crash / failure rate before | after |
+|---|---|---|---|
+| D19 | data is already normalised, NCHW, `(1,3,1,1)` broadcast | 4 of 5 crashed | 1 of 5 |
+| D21 | torch 2.13 / torchvision 0.28; removed APIs (`verbose=`, ...) | 7 of 9 crashed | 0 of 10 |
+| D22 | what a 45 s budget buys (~43 epochs, ~15k steps) | -- | -- |
+
+The line held consistently:
+
+> **Give the agent facts it cannot observe. Never give it the judgement being
+> measured.**
+
+Tensor shapes, library versions and the step count of the budget are properties
+of the environment that a human collaborator would simply read from the
+surrounding code -- withholding them measures guessing, not capability. By
+contrast, "change one thing at a time", "retune the learning rate when you swap
+optimiser", or "don't augment normalised data" are *reasoning*, and reasoning
+quality is the dependent variable. Supplying those would have been tuning the
+experiment toward a preferred answer.
+
+This distinction is itself a contribution: **an agentic harness's prompt is part
+of the instrument, and an under-specified prompt produces a floor effect that
+looks exactly like poor model capability.**
+
+### 4.4 A concrete reasoning failure worth quoting
+
+The dense arm replaced
+
+```python
+opt = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE,      # 0.01
+                      momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
+```
+
+with
+
+```python
+opt = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE,    # still 0.01
+                        weight_decay=WEIGHT_DECAY)
+```
+
+An LR tuned for SGD is roughly 10x too large for Adam. Result: **0.0924
+validation accuracy -- chance level for 10 classes.** In the same proposal it
+applied `adjust_brightness` and `adjust_saturation` to data the contract states
+is already standardised, where photometric transforms are meaningless.
+
+Both are the kind of error that a reasoning pass plausibly catches, which is one
+motivation for the thinking-mode study in section 9.
+
+### 4.5 Crash rate may be a dependent variable, not noise
 
 Even with the contract documented, both arms crashed: dense 1/5, MoE 2/5. If that
 holds over 24 sessions, "proportion of proposals that run at all" is a legitimate
@@ -192,7 +296,7 @@ outcome alongside accuracy and joules -- and it is directly relevant to the ener
 question, because a crashed proposal costs a full proposer inference and returns
 nothing.
 
-### 4.4 The crash-feedback loop works, but only with information to reason from
+### 4.6 The crash-feedback loop works, but only with information to reason from
 
 Feeding tracebacks into the next prompt was a pilot fix (the 14B had repeated one
 hallucinated API call four times without it). Under test: iteration 2 crashed, the
@@ -200,7 +304,7 @@ traceback reached iteration 3, and iteration 3 *changed approach* rather than
 re-emitting identical code. It still failed, because the traceback says the shapes
 disagree but not which is correct. Mechanism sound; starved of context (4.2).
 
-### 4.5 Proposals are large and mostly harmful
+### 4.7 Proposals are large and mostly harmful
 
 Per-iteration val_acc across the dense session ranged 0.4266 to 0.8296 against a
 0.7494 baseline. The proposer is not producing no-ops or single-constant tweaks;
@@ -374,8 +478,50 @@ replication README.
    43 GB of KV cache and ran 66 % on CPU. Always pin context length.
 8. Vendor "disable thinking" request fields are silently ignored by some
    OpenAI-compatible endpoints. Verify acceptance *and* effect.
+9. EnergiBridge warns `Interval must be at least 200ms to accurately measure CPU
+   usage` when run at 100 ms. **The warning does not apply to energy.** It
+   concerns the `CPU_USAGE` column, derived from /proc/stat scheduler-tick
+   accounting, which is noisy when sampled faster. `PACKAGE_ENERGY` and
+   `DRAM_ENERGY` -- the only columns this study consumes -- are RAPL
+   accumulators read as deltas, so the interval does not affect the totals, and
+   sampling faster slightly reduces the risk of missing a counter wraparound.
+   Sampling stayed at 100 ms. Check which columns you actually use before
+   changing an instrument setting in response to a warning.
 
 ---
+
+### 8.1 Orchestration hazards that produce *plausible but empty* data
+
+These are worse than crashes, because every health indicator stayed green.
+
+1. **A profiler that wraps your program runs it as its own child.** EnergiBridge
+   launches the target itself, so the `cwd` and `PYTHONPATH` the runner had
+   prepared were never applied: `python -m harness.agent_loop` could not find its
+   own package, died instantly, and its traceback went into a pipe nobody read.
+   EnergiBridge then sampled an **idle machine** for the full session and wrote a
+   perfectly valid CSV. Twenty-four sessions of that would have looked like data.
+   Fixed by passing `cwd`/`env`/output redirection through to the child, plus a
+   liveness check 8 s after start that fails loudly with the log tail.
+2. **`stdout=PIPE` with nobody reading it deadlocks** any target that emits more
+   than ~64 KB. A 20-iteration session does. Redirect to a file.
+   Consequence: `communicate()` then returns `None` for the redirected stream and
+   vendored code calling `.decode()` on it crashes at teardown -- read the file
+   instead.
+3. **Git ignore rules match case-insensitively on Windows and at any depth.** An
+   unanchored `models/` (intended for model weights) silently excluded the
+   vendored `ConfigValidator/Config/Models/`, `EventManager/Models/` and
+   `ProgressManager/RunTable/Models/` packages. The clone succeeded, `git status`
+   was clean on both machines, and 46 unit tests passed -- because the tests
+   never import the orchestrator. It failed only at first launch. Anchor the rule
+   (`/models/`).
+4. **A vendored plugin hardcoded `sudo`.** `EnergiBridge.requires_admin = True`
+   blocks forever on a password prompt on a machine where you have no sudo --
+   even though `energibridge --summary -- sleep 2` returned joules unprivileged
+   on that same host. Made it a profile switch. Verify, do not assume, whether
+   elevation is needed.
+5. **The orchestrator's md5 check is a feature.** It refuses to merge runs made
+   under different configurations. Answering "yes" would have produced a run
+   table whose early rows came from a config that never ran.
 
 ## 9. Open questions for Phase 1
 
@@ -385,5 +531,41 @@ replication README.
 - Is crash rate arm-dependent (4.3)?
 - Does `iters_to_first_keep` differ? MoE found its best at iteration 1, dense at
   iteration 3 -- with n=1 this is noise, but it is a cheap metric to track.
-- What is the **energy cost of a model swap**, and does it bias arms unevenly
-  given the shuffled run table?
+- What is the **energy cost of a model swap**? Measured at **25 s** per swap,
+  with ~12 swaps expected across a shuffled 24-run table -- ~5 minutes total, so
+  randomisation costs essentially nothing versus blocking by arm. The swap
+  happens in `before_run`, outside the measured window.
+
+### 9.1 Analysis-side decisions already required
+
+- **Report `max_val_acc_observed`, not only `best_val_acc`.** When nothing clears
+  EPS, `best_val_acc` collapses to the baseline and the outcome has no variance.
+  The best accuracy *observed* (kept or not) retains signal and distinguishes a
+  proposer that repeatedly lands within 1 pp from one that collapses to 0.09. It
+  is recoverable retroactively from `session.jsonl`, so no re-runs are needed.
+- **Keep rate is a legitimate binary outcome**, and `E_per_kept_J` is undefined
+  when nothing is kept -- state the convention explicitly rather than dropping
+  those sessions.
+- **Verify the thinking pin empirically** by summing `thinking_tokens` over every
+  `propose_end` event per arm. Config acceptance is not proof of effect.
+- The energy comparison stands regardless of any of the above, because `E_prop`
+  per proposal does not depend on anything being kept.
+
+### 9.2 Proposed Phase 2 -- does thinking pay for itself?
+
+Thinking tokens are pure proposer energy that yields no artifact, which puts the
+question squarely on the thesis: **does reasoning improve proposal quality enough
+to justify its joules, and does the answer differ by architecture?** If the MoE's
+cheaper tokens make reasoning affordable where dense's do not, that sharpens the
+sparsity argument considerably. The AdamW/SGD blunder in 4.4 is exactly the class
+of error a reasoning pass tends to catch.
+
+Design: `proposer` x `thinking`, 2x2, fixing `patience=greedy` and
+`loop_budget=10`, 3 repetitions = **12 runs, ~5-7 hours**. Adding thinking as a
+fourth factor to Phase 1 would instead mean 48 runs and much longer sessions.
+
+Feasibility must be probed first, on both arms: whether thinking overruns
+`max_tokens: 8192` (if so it measures truncation, not reasoning), whether latency
+approaches `request_timeout_s: 600`, and whether a fenced code block still
+arrives. Probe after Phase 1 finishes -- probing mid-run contaminates the energy
+measurement of the executing session.
