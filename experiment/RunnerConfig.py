@@ -165,6 +165,7 @@ class RunnerConfig:
             # Without this the harness never starts and the run silently
             # records energy for an idle machine.
             self._harness_log = (self._run_dir / "harness.log").open("w")
+            self.profiler.stdout_path = str(self._run_dir / "harness.log")
             self.profiler.popen_kwargs = {
                 "cwd": str(EXP_ROOT),
                 "env": env,

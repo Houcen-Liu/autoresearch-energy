@@ -259,8 +259,23 @@ class CLISource(DataSource):
             self.process.kill()
             raise RuntimeError(f"{self.source_name} process could not stop {e}")
         
-        self._validate_stop(stdout.decode("utf-8"), stderr.decode("utf-8"))
-        return stdout.decode("utf-8")
+        # communicate() returns None for any stream that was redirected rather
+        # than piped. We redirect to a file on purpose: an unread PIPE deadlocks
+        # a long session once ~64 KB of output accumulates. So fall back to the
+        # file, which holds exactly what the pipe would have carried -- including
+        # the energibridge summary line that EnergiBridge.stop() parses.
+        def _text(raw, path_attr):
+            if raw is not None:
+                return raw.decode("utf-8", errors="replace")
+            path = getattr(self, path_attr, None)
+            if path and Path(path).exists():
+                return Path(path).read_text(errors="replace")
+            return ""
+
+        out = _text(stdout, "stdout_path")
+        err = _text(stderr, "stderr_path")
+        self._validate_stop(out, err)
+        return out
 
 class DeviceSource(DataSource):
     def __init__(self):
