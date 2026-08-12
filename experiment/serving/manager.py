@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -69,20 +70,60 @@ def ensure(arm: str, cfg: dict, wait_s: float = 900) -> str:
     stop_all()
 
     port = endpoint.rstrip("/").rsplit(":", 1)[-1].split("/")[0]
-    env = dict(os.environ, PROPOSER_GPU=str(cfg["gpus"]["proposer"]))
+
+    # The launcher requires the repo and the pinned sha in the environment; it
+    # refuses to guess, because serving an unpinned revision would silently
+    # change the subject mid-experiment. Read them from models.yaml here so a
+    # swap needs no manual exports.
+    models = yaml.safe_load((ROOT / "serving" / "models.yaml").read_text())
+    entry = models.get(arm) or {}
+    repo, revision = entry.get("quant_repo"), entry.get("revision")
+    if not repo or not revision:
+        raise RuntimeError(
+            f"serving/models.yaml has no quant_repo/revision for '{arm}'. "
+            f"Run scripts/pin_models.py --write before Phase 1.")
+
+    env = dict(os.environ, PROPOSER_GPU=str(cfg["gpus"]["proposer"]),
+               REVISION=str(revision),
+               **{f"{arm.upper()}_MODEL": str(repo)})
+
+    # vLLM lives in its own venv (it pins a torch build that would replace the
+    # harness's). This process runs under the HARNESS venv, so `vllm` is not on
+    # PATH unless we put it there.
+    serve_bin = ROOT.parent / ".venv-serve" / "bin"
+    if serve_bin.is_dir():
+        env["PATH"] = f"{serve_bin}:{env.get('PATH', '')}"
+    elif not shutil.which("vllm"):
+        raise RuntimeError(
+            f"no vllm on PATH and no {serve_bin}. Serving must be installed in "
+            f"a separate venv -- see SERVER_RUNBOOK.md.")
+    env.setdefault("HF_HOME", str(Path.home() / "hf-cache"))
+
     log = Path(cfg.get("results_dir", ".")) / f"vllm_{arm}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
 
     with log.open("a") as lf:
-        subprocess.Popen(["bash", str(ROOT / "serving" / "serve_vllm.sh"), arm, port],
-                         env=env, stdout=lf, stderr=subprocess.STDOUT,
-                         start_new_session=True)
+        lf.write(f"\n=== {time.strftime('%F %T')} serving {arm} "
+                 f"{repo}@{revision[:8]} on port {port} ===\n")
+        lf.flush()
+        proc = subprocess.Popen(
+            ["bash", str(ROOT / "serving" / "serve_vllm.sh"), arm, port],
+            env=env, stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
 
     t0 = time.time()
     while time.time() - t0 < wait_s:
         if healthy(endpoint, served_name):
             print(f"[serving] '{arm}' ready after {time.time() - t0:.0f}s", flush=True)
             return endpoint
+        # Fail in seconds, not minutes. A launcher that exits immediately (a
+        # missing variable, no vllm on PATH) would otherwise be indistinguishable
+        # from a slow load, and Phase 1 would stall for the full timeout on every
+        # swap.
+        if proc.poll() is not None:
+            tail = log.read_text()[-800:] if log.exists() else "(no log)"
+            raise RuntimeError(
+                f"the vLLM launcher for '{arm}' exited immediately with code "
+                f"{proc.returncode}. Log tail:\n{tail}")
         time.sleep(5)
 
     raise RuntimeError(
