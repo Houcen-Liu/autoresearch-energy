@@ -237,7 +237,33 @@ an 18.6 % gap covering cooldown, checkpoint I/O and evaluation.
 94 % mean utilisation at 116 W sustained. The inner workload is GPU-bound, so
 attributing training joules to the training device measures what it claims to.
 
-### 5.4 Determinism
+### 5.4 Idle and the standing cost of residency (G6)
+
+30 minutes with both servers stopped and no workload:
+
+| device | mean power | energy over 30 min |
+|---|---|---|
+| GPU 0 | 8.63 W | 15 529 J |
+| GPU 1 | 7.90 W | 14 230 J |
+
+**True idle is ~8 W per card. The "cold" GPU during a live session drew 17-24 W**
+(G5 table). The difference is residency: a loaded model costs roughly **13 W
+continuously** whether or not a request is in flight, and the training card holds
+a CUDA context and the dataset between phases.
+
+This matters for the self-hosting framing. Over the 523 s dense session, the idle
+GPU alone accounted for ~9-12 kJ -- comparable to a third of the proposer's total
+draw -- purely for being ready. A practitioner who serves a proposer continuously
+pays this even at zero utilisation, and it scales with how long the model stays
+resident rather than with how much work it does. Baseline subtraction uses the
+measured idle figures above rather than assuming zero.
+
+Notably the two arms' resident standby draw was similar (dense 24.1 W, MoE
+21.9 W) despite the MoE holding 15.6 GiB of weights against dense's 9.3 GiB, so
+residency cost appears driven more by the card being powered and contexted than by
+how much VRAM is occupied. Worth confirming over Phase 1's larger sample.
+
+### 5.5 Determinism
 
 At temperature 0 with a fixed prompt, dense proposal latency had p50 58.87 s and
 p95 58.88 s over 40 requests. Session-level energy differences will come from what
