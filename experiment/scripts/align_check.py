@@ -26,6 +26,10 @@ def main() -> int:
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--gpu-train", type=int, default=0)
     ap.add_argument("--gpu-prop", type=int, default=1)
+    ap.add_argument("--min-window-s", type=float, default=5.0,
+                    help="phases shorter than this are excluded from G5; a "
+                         "crashed recipe produces a 'training' window with no "
+                         "training in it")
     a = ap.parse_args()
 
     rd = Path(a.run_dir)
@@ -51,12 +55,31 @@ def main() -> int:
                 continue
             p_hot = w[w.dev == hot].power_mw.mean()
             p_cold = w[w.dev == cold].power_mw.mean()
+            # A phase that lasted a couple of seconds is not a phase. A crashed
+            # recipe exits before the GPU is loaded, so the "training" window
+            # samples an idle card while the proposer GPU is still coming down
+            # from its last request -- the ratio then says nothing about device
+            # attribution, which is what this gate exists to test.
+            dur = hi - lo
             checks.append({"iter": it["iter"], "phase": phase,
-                           "hot_W": p_hot / 1000, "cold_W": p_cold / 1000,
+                           "dur_s": round(dur, 1), "n": len(w),
+                           "hot_W": round(p_hot / 1000, 1),
+                           "cold_W": round(p_cold / 1000, 1),
+                           "ratio": round(p_hot / p_cold, 2) if p_cold else float("inf"),
+                           "counted": bool(dur >= a.min_window_s),
                            "ok": bool(p_hot > 1.5 * p_cold)})
     df = pd.DataFrame(checks)
     if len(df):
-        print("\n" + df.groupby("phase")[["hot_W", "cold_W", "ok"]].mean().to_string())
+        print("\nper-window (counted=False -> too short to judge):")
+        print(df.to_string(index=False))
+        skipped = int((~df.counted).sum())
+        if skipped:
+            print(f"\n  {skipped} window(s) under {a.min_window_s:.0f}s excluded "
+                  f"(crashed or aborted phases).")
+        df = df[df.counted]
+        if len(df):
+            print("\n" + df.groupby("phase")[["hot_W", "cold_W", "ratio", "ok"]]
+                  .mean().to_string())
     g5 = bool(len(df)) and df.ok.mean() > 0.9
     print("G5 " + ("PASSED" if g5 else "FAILED -- device attribution looks wrong"))
     return 0 if (g4 and g5) else 1
