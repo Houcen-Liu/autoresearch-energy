@@ -28,8 +28,12 @@ results. They fix the method and flag what to watch.
 | dense proposal latency | 47-59 s | G1, G3 |
 | MoE proposal latency | 25-29 s | G1, G3 |
 | session energy (dense, 5 iter) | 60 204 J | G4 |
+| session energy (MoE, 5 iter) | 33 837 J | G4 |
+| E_prop per proposal, dense | 6 353 J | G4/G5 |
+| E_prop per proposal, MoE | 2 366 J (**0.37x**) | G4/G5 |
+| proposer power, dense / MoE | 112.8 W / 72.5 W | G5 |
 | wasted energy (dense) | 38 242 J (64 %) | G4 |
-| propose / train power | 112.8 W / 115.7 W | G5 |
+| training power | ~115.5 W both arms | G5 |
 
 ---
 
@@ -256,10 +260,40 @@ the agent does, not from sampling variance in how long it takes to say it.
 | proposal latency | ~56 s | ~27 s |
 | iteration wall-clock | ~104 s | ~74 s |
 
+### 6.1 Energy: the mechanism compounds
+
+| quantity | dense | MoE | ratio |
+|---|---|---|---|
+| proposer power (mean) | 112.8 W | **72.5 W** | 0.64x |
+| proposal duration | ~56 s | ~27 s | 0.48x |
+| **E_prop, 5 iterations** | **31 765 J** | **11 831 J** | **0.37x** |
+| E_prop per proposal | 6 353 J | 2 366 J | 0.37x |
+| E_train | 28 439 J | 22 006 J | -- (see caveat) |
+| session total | 60 204 J | 33 837 J | 0.56x |
+| session wall-clock | 523 s | 335 s | 0.64x |
+
+**The MoE spends 2.7x less energy per proposal.** Two independent effects
+multiply: ~3B active parameters draw ~36 % less instantaneous power than 14.8B,
+*and* finish in half the time. Neither alone would give this; together they do.
+
+This is the study's central mechanism, visible in a single session pair. Phase 1
+determines whether it survives 24 sessions and, crucially, whether proposal
+*quality* is preserved -- 2.7x less energy is only interesting if the MoE finds
+comparable improvements.
+
+**Caveat on the session total.** The MoE session crashed twice against dense's
+once, so it ran three full training phases against dense's four. Training energy
+is therefore not comparable between these two sessions, and the 0.56x session
+ratio is partly an artifact of crash count. **E_prop per proposal (0.37x) is the
+clean comparison**, because both arms issued exactly 5 proposals.
+
+### 6.2 Read this with appropriate caution
+
 The MoE proposes **2.0x faster** at 2.2x the parameter count, which is the
 sparsity mechanism doing exactly what the proposal predicted. Whether that
-converts into fewer joules per kept mutation, and whether proposal *quality*
-holds up over 24 sessions, is what Phase 1 exists to answer.
+converts into fewer joules *per kept mutation*, and whether proposal quality
+holds up over 24 sessions, is what Phase 1 exists to answer. With one session per
+arm, the accuracy figures above are indistinguishable from noise.
 
 Baselines differ by ~1 pp between the two sessions from training stochasticity
 alone -- a useful reminder of why the design uses repeated sessions and effect
