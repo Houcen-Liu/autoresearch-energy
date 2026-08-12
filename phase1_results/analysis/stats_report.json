@@ -1,0 +1,158 @@
+{
+  "E_gpu_total_J": {
+    "assumptions": {
+      "n_cells": 8,
+      "shapiro_W": 0.8886492541376821,
+      "shapiro_p": 0.012465357035705288,
+      "normal": false,
+      "levene_p": 0.46415975340725507,
+      "homoscedastic": true,
+      "use_art": true
+    },
+    "anova": {
+      "F": {
+        "proposer": 42.608695652173914,
+        "patience": 2.767102229054585,
+        "loop_budget": 50.575609756097535,
+        "proposer:patience": 0.6967741935483905,
+        "proposer:loop_budget": 1.6566842307917026e-30,
+        "patience:loop_budget": 1.3908045977011514
+      },
+      "p": {
+        "proposer": 6.96496205269396e-06,
+        "patience": 0.11568045844555849,
+        "loop_budget": 2.465288381576595e-06,
+        "proposer:patience": 0.4161598195636987,
+        "proposer:loop_budget": 0.999999999999999,
+        "patience:loop_budget": 0.25550886870450606
+      },
+      "partial_eta_sq": {
+        "proposer": 0.7270029673590505,
+        "patience": 0.14744429882044613,
+        "loop_budget": 0.7596717467760844,
+        "proposer:patience": 0.04173106646058753,
+        "proposer:loop_budget": 1.0354276442448141e-31,
+        "patience:loop_budget": 0.07997356245869144
+      }
+    },
+    "method": "ART-ANOVA"
+  },
+  "E_per_kept_J": {
+    "assumptions": {
+      "n_cells": 4,
+      "shapiro_W": 0.9387694952231845,
+      "shapiro_p": 0.4822975226539652,
+      "normal": true,
+      "levene_p": 0.9318011506537943,
+      "homoscedastic": true,
+      "use_art": false
+    },
+    "anova": {
+      "sum_sq": {
+        "C(proposer)": 8014082944.894062,
+        "C(patience)": 338283552.52600044,
+        "C(loop_budget)": 20480504947.1843,
+        "C(proposer):C(patience)": 528608852.4211932,
+        "C(proposer):C(loop_budget)": 651258989.7999705,
+        "C(patience):C(loop_budget)": 345174004.60206866,
+        "Residual": 21687755016.990414
+      },
+      "df": {
+        "C(proposer)": 1.0,
+        "C(patience)": 1.0,
+        "C(loop_budget)": 1.0,
+        "C(proposer):C(patience)": 1.0,
+        "C(proposer):C(loop_budget)": 1.0,
+        "C(patience):C(loop_budget)": 1.0,
+        "Residual": 11.0
+      },
+      "F": {
+        "C(proposer)": 4.064732026195114,
+        "C(patience)": 0.17157696012661713,
+        "C(loop_budget)": 10.38768439806408,
+        "C(proposer):C(patience)": 0.2681096947138065,
+        "C(proposer):C(loop_budget)": 0.3303176784405505,
+        "C(patience):C(loop_budget)": 0.17507178809647256,
+        "Residual": NaN
+      },
+      "PR(>F)": {
+        "C(proposer)": 0.0688737227326693,
+        "C(patience)": 0.6866762741624681,
+        "C(loop_budget)": 0.00811574196464877,
+        "C(proposer):C(patience)": 0.614856601776214,
+        "C(proposer):C(loop_budget)": 0.5770374264664507,
+        "C(patience):C(loop_budget)": 0.6836955819757824,
+        "Residual": NaN
+      },
+      "partial_eta_sq": {
+        "C(proposer)": 0.26981774512332557,
+        "C(patience)": 0.015358347414962668,
+        "C(loop_budget)": 0.4856853226712251,
+        "C(proposer):C(patience)": 0.023793670986322086,
+        "C(proposer):C(loop_budget)": 0.029153434865209698,
+        "C(patience):C(loop_budget)": 0.01566627860797785,
+        "Residual": 0.5
+      }
+    },
+    "method": "ANOVA"
+  },
+  "test_acc": {
+    "assumptions": {
+      "n_cells": 8,
+      "shapiro_W": 0.9287601244671214,
+      "shapiro_p": 0.09146203999910812,
+      "normal": true,
+      "levene_p": 0.9953651507395965,
+      "homoscedastic": true,
+      "use_art": false
+    },
+    "anova": {
+      "sum_sq": {
+        "C(proposer)": 0.004876350416666529,
+        "C(patience)": 0.00226010041666665,
+        "C(loop_budget)": 2.3800416666664854e-05,
+        "C(proposer):C(patience)": 0.002198420416666694,
+        "C(proposer):C(loop_budget)": 0.00043776041666666253,
+        "C(patience):C(loop_budget)": 0.00044290041666668903,
+        "Residual": 0.01917291708333336
+      },
+      "df": {
+        "C(proposer)": 1.0,
+        "C(patience)": 1.0,
+        "C(loop_budget)": 1.0,
+        "C(proposer):C(patience)": 1.0,
+        "C(proposer):C(loop_budget)": 1.0,
+        "C(patience):C(loop_budget)": 1.0,
+        "Residual": 17.0
+      },
+      "F": {
+        "C(proposer)": 4.323700807916838,
+        "C(patience)": 2.0039572964477217,
+        "C(loop_budget)": 0.021103052893553666,
+        "C(proposer):C(patience)": 1.9492676529551962,
+        "C(proposer):C(loop_budget)": 0.38814787812347995,
+        "C(patience):C(loop_budget)": 0.3927053484145505,
+        "Residual": NaN
+      },
+      "PR(>F)": {
+        "C(proposer)": 0.05303414069019414,
+        "C(patience)": 0.17494883710820341,
+        "C(loop_budget)": 0.8862070505058558,
+        "C(proposer):C(patience)": 0.18063187266316752,
+        "C(proposer):C(loop_budget)": 0.5415431502353432,
+        "C(patience):C(loop_budget)": 0.5392057568139252,
+        "Residual": NaN
+      },
+      "partial_eta_sq": {
+        "C(proposer)": 0.20276502877547317,
+        "C(patience)": 0.10544947376946102,
+        "C(loop_budget)": 0.0012398169982271619,
+        "C(proposer):C(patience)": 0.1028677038424333,
+        "C(proposer):C(loop_budget)": 0.022322554468944895,
+        "C(patience):C(loop_budget)": 0.02257873864633416,
+        "Residual": 0.5
+      }
+    },
+    "method": "ANOVA"
+  }
+}
