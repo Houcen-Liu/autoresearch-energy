@@ -57,6 +57,13 @@ energy:
   nvml: true
   nvml_hz: 10
   energibridge: true
+  # Does energibridge need root here? Verify, do not assume:
+  #     energibridge --summary -- sleep 2
+  # If that prints joules, leave this false. If it fails on permissions, either
+  # set it true (needs sudo) or ask an admin for
+  #     setcap cap_dac_read_search+ep $(which energibridge)
+  # Measured on this host 2026-08-11: works unprivileged, 87.18 J over 2.00 s.
+  energibridge_sudo: false
   energibridge_interval_ms: 100
   energibridge_bin: energibridge
 

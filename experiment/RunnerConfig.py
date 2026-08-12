@@ -146,6 +146,14 @@ class RunnerConfig:
                 out_file=self._run_dir / "energibridge.csv",
                 sample_frequency=self.cfg["energy"]["energibridge_interval_ms"],
             )
+            # The vendored plugin hardcodes requires_admin=True, which prepends
+            # `sudo` and blocks on a password prompt forever on a machine where
+            # you have no sudo. Whether elevation is actually needed depends on
+            # the CPU: this host exposes no /sys/class/powercap/intel-rapl, yet
+            # `energibridge --summary -- sleep 2` returns joules unprivileged.
+            # Test it on YOUR host before assuming either way.
+            self.profiler.requires_admin = bool(
+                self.cfg["energy"].get("energibridge_sudo", True))
             self.profiler.start()
             self.session_proc = None
         else:
