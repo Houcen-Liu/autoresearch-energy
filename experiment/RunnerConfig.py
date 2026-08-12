@@ -128,6 +128,12 @@ class RunnerConfig:
         self._cell = cell
         output.console_log(f"run {context.run_nr}: {cell}")
 
+    def _session_alive(self) -> bool:
+        """Is a harness process running? Checked by pattern, because
+        energibridge owns the child and we never see its pid."""
+        return subprocess.run(["pgrep", "-f", "harness.agent_loop"],
+                              capture_output=True).returncode == 0
+
     def start_measurement(self, context: RunnerContext) -> None:
         gpus = self.cfg["gpus"]
         devices = sorted({int(gpus["train"]), int(gpus["proposer"])}) \
@@ -154,7 +160,31 @@ class RunnerConfig:
             # Test it on YOUR host before assuming either way.
             self.profiler.requires_admin = bool(
                 self.cfg["energy"].get("energibridge_sudo", True))
+            # energibridge spawns the session itself, so the session's cwd,
+            # PYTHONPATH and output redirection have to be handed to it here.
+            # Without this the harness never starts and the run silently
+            # records energy for an idle machine.
+            self._harness_log = (self._run_dir / "harness.log").open("w")
+            self.profiler.popen_kwargs = {
+                "cwd": str(EXP_ROOT),
+                "env": env,
+                "stdout": self._harness_log,
+                "stderr": subprocess.STDOUT,
+            }
             self.profiler.start()
+
+            # The session must actually be running. energibridge starting
+            # successfully proves nothing about the program it wrapped: if the
+            # harness dies on import, energibridge happily samples an idle
+            # machine for the whole session and writes a perfectly valid CSV of
+            # nothing. Fail in seconds instead.
+            time.sleep(8)
+            if not self._session_alive():
+                self._harness_log.flush()
+                tail = (self._run_dir / "harness.log").read_text()[-1500:]
+                raise RuntimeError(
+                    "the agent session did not start under energibridge.\n"
+                    "harness.log tail:\n" + (tail or "(empty)"))
             self.session_proc = None
         else:
             self.session_proc = subprocess.Popen(

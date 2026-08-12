@@ -226,10 +226,19 @@ class CLISource(DataSource):
         self._validate_parameters(self.args)
 
     def start(self):
+        # popen_kwargs lets the caller set cwd, env and output redirection.
+        # Two reasons this matters, both learned the hard way:
+        #  1. energibridge runs the target program itself, so a target that
+        #     needs a working directory or PYTHONPATH gets neither, fails
+        #     instantly, and its error disappears into an unread pipe -- the
+        #     experiment then "runs" for hours measuring nothing.
+        #  2. stdout=PIPE with nobody reading it deadlocks any target that
+        #     produces more than a pipe buffer (~64 KB) of output. A long
+        #     session does. Redirect to a file instead.
+        kw = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        kw.update(getattr(self, "popen_kwargs", {}) or {})
         try:
-            self.process = subprocess.Popen(shlex.split(self._format_cmd()), 
-                                            stdout=subprocess.PIPE, 
-                                            stderr=subprocess.PIPE)
+            self.process = subprocess.Popen(shlex.split(self._format_cmd()), **kw)
         except Exception as e:
             self.process.kill()
             raise RuntimeError(f"{self.source_name} process could not start: {e}")
