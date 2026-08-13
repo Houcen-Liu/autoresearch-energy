@@ -218,8 +218,12 @@ class RunnerConfig:
 
     def interact(self, context: RunnerContext) -> None:
         """Block until the session finishes or the hard timeout fires."""
-        expected = int(self._cell["loop_budget"]) * \
-            (self.cfg["workload"]["train_seconds"] + 120) + 900   # + model swap
+        # loop_budget is fixed in Phase 2, not a run-table factor. Reasoning
+        # roughly triples proposal time (2.20x dense, 2.76x MoE by probe), so
+        # the per-iteration allowance is generous enough to cover the thinking
+        # arm without letting a genuinely hung session run forever.
+        per_iter = self.cfg["workload"]["train_seconds"] + 240
+        expected = PHASE2_LOOP_BUDGET * per_iter + 900   # + model swap
         deadline = time.time() + 3 * expected
         while time.time() < deadline:
             if self.session_proc is not None and self.session_proc.poll() is not None:
