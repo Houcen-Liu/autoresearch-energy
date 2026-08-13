@@ -1,0 +1,7 @@
+{
+  "val_acc": 0.8296,
+  "epochs_completed": 27,
+  "steps": 9594,
+  "train_seconds": 45.01,
+  "peak_vram_mb": 305
+}

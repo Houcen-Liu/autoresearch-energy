@@ -1,1 +1,0 @@
-RESULT {"val_acc": 0.8212, "epochs_completed": 29, "steps": 5158, "train_seconds": 45.02, "peak_vram_mb": 308}

@@ -1,7 +1,7 @@
 """CIFAR-10 training recipe -- THE SINGLE FILE THE AGENT EDITS.
 
 Contract with the harness (do not break any of these; they are checked statically
-by harness/guards.py before this file is ever executed:
+by harness/guards.py before this file is ever executed):
 
   * TRAIN_SECONDS is a fixed wall-clock training budget and MUST keep its value.
     Training stops at the budget boundary, mid-epoch if necessary. Buying accuracy
@@ -39,40 +39,38 @@ from prepare_cifar import load_splits
 TRAIN_SECONDS = 240.0          # DO NOT MODIFY -- enforced by harness/guards.py
 
 # ------------------------------------------------------------- tunable recipe
-BATCH_SIZE = 256
-LEARNING_RATE = 0.1
+BATCH_SIZE = 128
+LEARNING_RATE = 0.01
 MOMENTUM = 0.9
-WEIGHT_DECAY = 0.0001
+WEIGHT_DECAY = 0.0
 SEED = 0
 
 
 def build_model() -> nn.Module:
     """Return the model. Must stay importable for final_eval.py."""
     return nn.Sequential(
-        nn.Conv2d(3, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
-        nn.Conv2d(64, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+        nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(),
+        nn.BatchNorm2d(32),
+        nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(),
+        nn.BatchNorm2d(32),
         nn.MaxPool2d(2),                                    # 16x16
-        nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
-        nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+        nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(),
+        nn.BatchNorm2d(64),
+        nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(),
+        nn.BatchNorm2d(64),
         nn.MaxPool2d(2),                                    # 8x8
-        nn.Conv2d(128, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+        nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(),
+        nn.BatchNorm2d(128),
         nn.MaxPool2d(2),                                    # 4x4
         nn.Flatten(),
-        nn.Linear(256 * 4 * 4, 512), nn.ReLU(),
-        nn.Dropout(0.5),
-        nn.Linear(512, 10),
+        nn.Linear(128 * 4 * 4, 256), nn.ReLU(),
+        nn.BatchNorm1d(256),
+        nn.Linear(256, 10),
     )
 
 
 def augment(xb: torch.Tensor) -> torch.Tensor:
     """Data augmentation hook. Baseline: none."""
-    # Add random horizontal flips and crop with padding
-    if torch.rand(1) < 0.5:
-        xb = F.pad(xb, (4, 4, 4, 4), padding_mode='constant', value=0)
-        xb = F.interpolate(xb, size=(32, 32), mode='bilinear', align_corners=False)
-        xb = xb[:, :, 4:36, 4:36]
-    if torch.rand(1) < 0.5:
-        xb = torch.flip(xb, dims=[3])
     return xb
 
 
@@ -123,7 +121,6 @@ def main() -> int:
     model = build_model().to(device)
     opt = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE,
                           momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=200)
 
     # Warm-up outside the budget: CUDA context, kernel autotune, first allocation.
     xb0 = x_tr[:BATCH_SIZE].to(device)
@@ -151,7 +148,6 @@ def main() -> int:
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
-            scheduler.step()
             steps += 1
         else:
             epochs += 1
@@ -178,5 +174,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
