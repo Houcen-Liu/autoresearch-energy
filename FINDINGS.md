@@ -375,7 +375,7 @@ the agent does, not from sampling variance in how long it takes to say it.
 
 ---
 
-## 6. Preliminary arm comparison -- **n = 1 per arm, not a result**
+## 6. Preliminary arm comparison -- SUPERSEDED by section 10 (kept for the mechanism)
 
 | | dense (14B) | MoE (30B-A3B) |
 |---|---|---|
@@ -569,3 +569,135 @@ Feasibility must be probed first, on both arms: whether thinking overruns
 approaches `request_timeout_s: 600`, and whether a fenced code block still
 arrives. Probe after Phase 1 finishes -- probing mid-run contaminates the energy
 measurement of the executing session.
+
+
+---
+
+# 10. PHASE 1 RESULTS (24 sessions, 2026-08-12)
+
+Full factorial: 2 proposers x 2 patience x 2 loop budgets x 3 repetitions.
+All 24 sessions valid, 0 quarantined, 0 infrastructure errors.
+
+## 10.1 Headline: the MoE dominates -- cheaper *and* better
+
+| outcome | dense (14B) | MoE (30B-A3B) | change |
+|---|---|---|---|
+| session GPU energy | 156.4 kJ | **90.7 kJ** | **-42.0 %** |
+| proposer energy | 94.3 kJ | **35.7 kJ** | **-62.2 %** |
+| training energy | 62.1 kJ | 55.0 kJ | -11.4 % |
+| wasted energy | 126.1 kJ | 67.0 kJ | -46.9 % |
+| test accuracy | 0.7939 | **0.8224** | **+2.85 pp** |
+| kept mutations (total) | 12 | **17** | +42 % |
+| sessions with 0 kept | **5 / 12** | **1 / 12** | -- |
+| session wall-clock | 1515 s | 1023 s | -32.5 % |
+| proposal latency | 61.8 s | 31.9 s | -48.4 % |
+
+**This is not a Pareto trade-off.** The sparse model is cheaper on every energy
+measure *and* more accurate. The proposal's hypothesis -- large-model quality at
+small-model inference cost -- holds in the strong form on this workload.
+
+Mechanism (section 6.1): ~3B active parameters draw ~36 % less instantaneous
+power *and* finish in half the time; the two effects multiply.
+
+## 10.2 Statistics
+
+Primary factor, session GPU energy (ART-ANOVA; Shapiro p = 0.012 so ranks were
+aligned, Levene p = 0.46):
+
+| effect | F | p | partial eta^2 |
+|---|---|---|---|
+| **proposer** | 42.61 | 6.96e-06 | **0.727 (large)** |
+| **loop_budget** | 50.58 | 2.47e-06 | **0.760 (large)** |
+| patience | 2.77 | 0.116 | 0.147 |
+| proposer x loop_budget | ~0 | 1.000 | ~0 |
+| proposer x patience | 0.70 | 0.416 | 0.042 |
+
+Pairwise contrasts (Mann-Whitney, Cliff's delta, Holm-corrected over 5 tests):
+
+| contrast | outcome | change | Cliff's delta | p_holm |
+|---|---|---|---|---|
+| dense vs moe | E_gpu_total | -42.0 % | 0.556 **large** | 0.090 |
+| dense vs moe | test_acc | +3.6 % | -0.444 medium | 0.207 |
+| budget 10 vs 20 | E_per_kept | +107.6 % | -0.802 **large** | **0.024** |
+| patience 1 vs 3 | E_wasted | -9.8 % | 0.042 negligible | 1.000 |
+| patience 1 vs 3 | E_per_kept | -9.4 % | 0.117 negligible | 1.000 |
+
+**Report the effect sizes, and be honest about the p-values.** The ART-ANOVA on
+`proposer` is unambiguous (p = 7e-06, partial eta^2 = 0.73), but the *pairwise*
+Holm-corrected test is p = 0.090. These are not contradictory: the ANOVA models
+`loop_budget`, which is itself a huge energy effect, while the pairwise test pools
+across it and inherits that variance. With n = 12 per arm, the honest statement is
+**a large, consistent effect that the pairwise nonparametric test is underpowered
+to certify at alpha = 0.05 after correction.**
+
+## 10.3 A reporting trap: two conventions for energy-per-kept-mutation
+
+`E_per_kept_J` is undefined when a session keeps nothing, and 5 of 12 dense
+sessions kept nothing. Averaging the defined values silently **drops the dense
+arm's five worst sessions**:
+
+| convention | dense | MoE | ratio |
+|---|---|---|---|
+| mean of per-session ratios (drops 0-kept) | 112.1 kJ | 74.4 kJ | 1.51x |
+| **pooled: total energy / total kept** | **156.4 kJ** | **64.0 kJ** | **2.44x** |
+
+The first convention *understates the effect by 38 %* by discarding exactly the
+sessions where the dense arm did worst. **Report the pooled figure**, state the
+convention explicitly, and report the zero-kept counts alongside it.
+
+Zero-kept sessions: dense 5/12 vs MoE 1/12 (Fisher exact p = 0.155 -- suggestive,
+underpowered at this n).
+
+## 10.4 Reliability, not just central tendency
+
+Best accuracy *observed* in a session, relative to that session's baseline
+(kept or not -- this retains signal when nothing clears EPS):
+
+| arm | mean | median |
+|---|---|---|
+| dense | **-2.21 pp** | +4.69 pp |
+| MoE | **+7.23 pp** | +7.42 pp |
+
+The dense arm's mean is *negative* while its median is positive: a minority of
+sessions collapse catastrophically (proposals reaching ~0.09, chance level for 10
+classes -- section 4.4) and drag the mean below baseline. The MoE's mean and
+median nearly coincide.
+
+**So the finding is about reliability as much as quality.** The dense proposer
+sometimes destroys the recipe; the MoE consistently improves it. For a
+practitioner this matters more than the 2.85 pp mean difference: a session that
+ends below baseline has spent its entire energy budget for a negative result.
+
+## 10.5 Doubling the iteration budget does not pay
+
+`loop_budget` 10 -> 20 raised energy-per-kept-mutation by **+107.6 %**
+(Cliff's delta -0.80, large, p_holm = 0.024 -- the only Holm-significant pairwise
+contrast). Twice the experiments cost twice the energy per useful result.
+
+This factor was void in the discarded first attempt (section 2.4) because
+temperature 0 made iterations 11-20 duplicates. With diverse proposals it now
+measures something real: within a session, later iterations are *less* productive
+per joule -- the cheap wins are found early.
+
+## 10.6 Patience did not matter
+
+Neither `patience` contrast reached even a small effect (Cliff's delta 0.04 and
+0.12, both p_holm = 1.000). Allowing a chain of provisionally-kept regressions
+neither wasted meaningfully more energy nor found meaningfully better recipes on
+this workload.
+
+## 10.7 Thinking mode was pinned, verified empirically
+
+**0 thinking tokens across all 360 proposals**, both arms. D9's confound is closed
+by measurement, not by configuration. This also establishes the clean baseline for
+the Phase 2 thinking study (section 9.2).
+
+## 10.8 What this does not establish
+
+- **Unequal total capacity** (30.5B vs 14.8B) means sparsity and capacity are not
+  separated. The claim is "more efficient per joule on one 20 GB card", not
+  "sparsity beats density at matched capacity".
+- **Publisher asymmetry**: dense is Qwen's official AWQ build, MoE is third-party.
+- **One workload, one budget.** CIFAR-10 CNN at 45 s.
+- n = 12 per arm. Effect sizes are large and consistent; pairwise significance
+  after correction is not achieved for the proposer contrast.
