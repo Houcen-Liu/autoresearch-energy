@@ -1,0 +1,38 @@
+{
+  "E_gpu_total_J": {
+    "assumptions": {
+      "n_cells": 2,
+      "shapiro_W": 0.9380449920506975,
+      "shapiro_p": 0.4731684425087252,
+      "normal": true,
+      "levene_p": 0.1407229666731989,
+      "homoscedastic": true,
+      "use_art": false
+    },
+    "anova_error": "must have at least one row in constraint matrix"
+  },
+  "E_per_kept_J": {
+    "assumptions": {
+      "n_cells": 2,
+      "shapiro_W": 0.9483638160129877,
+      "shapiro_p": 0.6491826787148613,
+      "normal": true,
+      "levene_p": 0.4153940433649076,
+      "homoscedastic": true,
+      "use_art": false
+    },
+    "anova_error": "must have at least one row in constraint matrix"
+  },
+  "test_acc": {
+    "assumptions": {
+      "n_cells": 2,
+      "shapiro_W": 0.9248997405317361,
+      "shapiro_p": 0.32916551615765954,
+      "normal": true,
+      "levene_p": 0.00782039749849508,
+      "homoscedastic": false,
+      "use_art": true
+    },
+    "anova_error": "must have at least one row in constraint matrix"
+  }
+}
