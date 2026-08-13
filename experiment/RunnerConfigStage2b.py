@@ -3,16 +3,44 @@
 Run with:
     sudo python experiment-runner/ experiment/RunnerConfig.py
 
-PHASE 2 (reasoning): 2 proposers x 2 thinking modes x 3 reps = 12 sessions.
+STAGE 2b (sampling temperature): 4 levels x 3 reps = 12 sessions, MoE only.
 
-Phase 1 pinned reasoning off for both arms as a fixed variable (D9) and verified
+Temperature is the only intra-model axis still open. Quantization cannot be
+swept upward -- the MoE at int8 is ~30 GB and does not fit a 20 GB card -- and
+sweeping downward (int3/int2) confounds the comparison with quality collapse.
+
+WHY THIS MATTERS. Phase 1 had to be restarted because temperature 0, chosen for
+reproducibility, made the search degenerate: proposals within a session had
+0.982 mean pairwise similarity, one consecutive pair byte-identical, so ten
+iterations delivered one idea at ten times its energy and the loop_budget factor
+measured nothing (D22). That finding currently rests on a comparison between one
+degenerate session and the post-fix runs. This sweep turns it into a measured
+relationship, with n = 3 at each level including temperature 0 itself.
+
+Three dependent variables are of interest here, and the first is not reported by
+any comparable study:
+
+  * proposal_similarity_mean -- search diversity, computed per session from the
+    proposal files. Does 0.4 already escape degeneracy, or is 0.7 needed?
+  * kept / max_val_acc_observed -- does diversity buy outcomes, or just waste?
+  * E_per_kept_J -- what diversity costs.
+
+NAMING. Stage 1 varies architecture with intra-model settings fixed (Phase 1 on
+GPU, Phase 2 CPU-only); Stage 2 varies the intra-model settings themselves.
+Stage 2b is reasoning; this file is Stage 2b.
+
+The MoE is the only arm here: Phase 1 established it as both cheaper and more
+accurate, and the question is now how to configure it, not which to choose.
+Sessions are ~11 min at budget 10, so 12 runs cost ~2.5 h.
+
+Stage 1 pinned reasoning off for both arms as a fixed variable (D9) and verified
 by measurement that it stayed off: 0 thinking tokens across all 360 proposals.
-Phase 2 promotes it to a factor against that clean baseline.
+Stage 2b promotes it to a factor against that clean baseline.
 
 Patience and loop budget are FIXED here at the Phase-1 values that were cheapest
 per kept mutation (greedy, budget 10): patience showed no effect at all, and
 doubling the budget cost +107.6 % energy per kept mutation, so neither is worth
-spending Phase-2 runs on.
+spending Stage-2b runs on.
 
 Probe-measured cost (gate_evidence/probe_thinking_*.json): reasoning inflates
 output 2.20x (dense) and 2.76x (MoE) with throughput unchanged, i.e. it costs
@@ -49,15 +77,16 @@ from serving.manager import ensure as ensure_served   # noqa: E402
 PROFILE = os.environ.get("AR_PROFILE", str(EXP_ROOT / "profiles" / "server.yaml"))
 PATIENCE_LEVELS = {"greedy": 1, "patience3": 3}
 
-# Fixed variables for Phase 2, taken from the cheapest Phase-1 configuration.
-PHASE2_PATIENCE = 1
-PHASE2_LOOP_BUDGET = 10
+# Fixed variables for Stage 2b, taken from the cheapest Phase-1 configuration.
+STAGE2B_ARM = "moe"      # Phase 1 established the MoE as the better arm
+STAGE2B_PATIENCE = 1
+STAGE2B_LOOP_BUDGET = 10
 
 
 class RunnerConfig:
     ROOT_DIR = Path(__file__).resolve().parent
 
-    name: str = "autoresearch_energy_phase2_thinking"
+    name: str = "autoresearch_energy_stage2b_temperature"
     results_output_path: Path = ROOT_DIR.parent / "experiments"
     operation_type: OperationType = OperationType.AUTO
     time_between_runs_in_ms: int = 120_000          # >=120 s thermal cooldown
@@ -84,10 +113,9 @@ class RunnerConfig:
 
     # ------------------------------------------------------------- run table
     def create_run_table_model(self) -> RunTableModel:
-        proposer = FactorModel("proposer", ["dense", "moe"])
-        thinking = FactorModel("thinking", ["off", "on"])
+        temperature = FactorModel("temperature", [0.0, 0.4, 0.7, 1.0])
         self.run_table_model = RunTableModel(
-            factors=[proposer, thinking],
+            factors=[temperature],
             repetitions=3,
             shuffle=True,                    # randomised, interleaved cell order
             data_columns=[
@@ -97,11 +125,14 @@ class RunnerConfig:
                 "iterations", "kept", "reverted", "rejected", "errored",
                 "wallclock_s", "prompt_tokens", "completion_tokens",
                 "proposer_latency_s_mean", "no_progress", "alignment_ok",
-                # Phase-2 specific. thinking_tokens_total is the manipulation
+                # Stage-2b specific. thinking_tokens_total is the manipulation
                 # check: a serving stack that accepts enable_thinking and
                 # ignores it must not be mistaken for one that honours it.
                 # Expect ~0 for thinking=off and thousands for thinking=on.
                 "thinking_tokens_total", "max_val_acc_observed",
+                # Stage-2b specific: search diversity is the point of the sweep.
+                "proposal_similarity_mean", "proposal_similarity_max",
+                "proposals_compared",
             ],
         )
         return self.run_table_model
@@ -131,16 +162,16 @@ class RunnerConfig:
         # ~2 min of load; blocking the table by proposer instead would align the
         # factor with run order and hand thermal drift to the comparison (D11).
         if not os.environ.get("AR_STUB"):
-            ensure_served(str(cell["proposer"]), self.cfg)
+            ensure_served(STAGE2B_ARM, self.cfg)
 
         seed = context.run_nr
         cmd = [sys.executable, "-m", "harness.agent_loop",
                "--profile", PROFILE,
-               "--proposer", str(cell["proposer"]),
-               # fixed in Phase 2 -- see the module docstring
-               "--patience", str(PHASE2_PATIENCE),
-               "--loop-budget", str(PHASE2_LOOP_BUDGET),
-               "--thinking", str(cell["thinking"]),
+               "--proposer", STAGE2B_ARM,
+               # fixed in Stage 2b -- see the module docstring
+               "--patience", str(STAGE2B_PATIENCE),
+               "--loop-budget", str(STAGE2B_LOOP_BUDGET),
+               "--temperature", str(cell["temperature"]),
                "--run-dir", str(run_dir),
                "--seed", str(seed)]
         if os.environ.get("AR_STUB"):
@@ -218,12 +249,12 @@ class RunnerConfig:
 
     def interact(self, context: RunnerContext) -> None:
         """Block until the session finishes or the hard timeout fires."""
-        # loop_budget is fixed in Phase 2, not a run-table factor. Reasoning
+        # loop_budget is fixed in Stage 2b, not a run-table factor. Reasoning
         # roughly triples proposal time (2.20x dense, 2.76x MoE by probe), so
         # the per-iteration allowance is generous enough to cover the thinking
         # arm without letting a genuinely hung session run forever.
         per_iter = self.cfg["workload"]["train_seconds"] + 240
-        expected = PHASE2_LOOP_BUDGET * per_iter + 900   # + model swap
+        expected = STAGE2B_LOOP_BUDGET * per_iter + 900   # + model swap
         deadline = time.time() + 3 * expected
         while time.time() < deadline:
             if self.session_proc is not None and self.session_proc.poll() is not None:
@@ -258,29 +289,22 @@ class RunnerConfig:
         gpus = self.cfg["gpus"]
         row: Dict[str, Any] = dict(summary)
 
-        # MANIPULATION CHECK. The whole of Phase 2 rests on the serving stack
-        # honouring `enable_thinking`, and the pilot showed vendor reasoning
-        # switches being accepted and then ignored. Verify per run, loudly:
-        # a factor that did not take is worse than a failed run, because it
-        # looks like a null result.
-        want = str(self._cell.get("thinking", "")).lower()
-        got = int(row.get("thinking_tokens_total") or 0)
-        if want == "on" and got == 0:
-            output.console_log(
-                "*** MANIPULATION FAILED: thinking=on produced 0 reasoning "
-                "tokens. The endpoint accepted the parameter and ignored it; "
-                "this run is NOT evidence about reasoning. Investigate before "
-                "continuing.")
+        # MANIPULATION CHECK. Verify the level actually took, and -- more
+        # usefully -- surface the diversity it produced, since a temperature
+        # that is accepted but ineffective looks exactly like a null result.
+        want = float(self._cell.get("temperature", -1))
+        got = row.get("temperature")
+        sim = row.get("proposal_similarity_mean")
+        if got is not None and abs(float(got) - want) > 1e-6:
+            output.console_log(f"*** temperature mismatch: asked {want}, "
+                               f"session recorded {got}")
             row["valid"] = False
-            row["invalid_reason"] = "thinking=on but 0 reasoning tokens emitted"
-        elif want == "off" and got > 0:
-            output.console_log(
-                f"*** MANIPULATION FAILED: thinking=off but {got} reasoning "
-                f"tokens were emitted.")
-            row["valid"] = False
-            row["invalid_reason"] = f"thinking=off but {got} reasoning tokens"
+            row["invalid_reason"] = f"temperature {got} != requested {want}"
         else:
-            output.console_log(f"    thinking={want}, reasoning tokens={got} (as expected)")
+            output.console_log(
+                f"    temperature={want}, proposal similarity="
+                f"{sim if sim is not None else 'n/a'} "
+                f"({'DEGENERATE' if (sim or 0) > 0.9 else 'diverse'})")
 
         if self.cfg.get("attribution") == "per_device" and (rd / "nvml.csv").exists():
             e = align(rd, int(gpus["train"]), int(gpus["proposer"]))

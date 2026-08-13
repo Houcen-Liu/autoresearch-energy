@@ -12,8 +12,25 @@ from pathlib import Path
 
 import pandas as pd
 
-BASELINE_CELL = {"proposer": "dense", "patience": "greedy", "loop_budget": 10}
+# The proposal designates dense x greedy x budget-10 as the baseline cell, the
+# reference against which configuration effects are reported. The run table
+# names patience levels "greedy"/"patience3"; the tidy table stores the enforced
+# integer. Match on both, or is_baseline is False for every row and the figure's
+# "outlined: baseline" legend marks nothing.
+BASELINE_CELL = {"proposer": "dense", "patience": ("greedy", "1", 1),
+                 "loop_budget": (10, "10")}
+# Phase 1's factors by default; Stage 2 experiments vary different ones, so the
+# cell definition follows the data rather than being fixed here (see
+# aggregate.ALL_FACTORS).
+ALL_FACTORS = ["proposer", "patience", "loop_budget", "thinking", "temperature"]
 CELL_KEYS = ["proposer", "patience", "loop_budget"]
+
+
+def cell_keys(tidy) -> list:
+    """Columns that actually vary in this table, falling back to whatever exists."""
+    present = [k for k in ALL_FACTORS if k in tidy.columns]
+    varying = [k for k in present if tidy[k].nunique(dropna=True) > 1]
+    return varying or present
 
 
 def non_dominated(points: pd.DataFrame, x: str = "E_gpu_total_J",
@@ -29,7 +46,8 @@ def non_dominated(points: pd.DataFrame, x: str = "E_gpu_total_J",
 
 def cell_summary(tidy: pd.DataFrame, x: str = "E_gpu_total_J",
                  y: str = "test_acc") -> pd.DataFrame:
-    g = (tidy.groupby(CELL_KEYS, dropna=False)
+    keys = cell_keys(tidy)
+    g = (tidy.groupby(keys, dropna=False)
          .agg(n=("run", "count"),
               E_mean=(x, "mean"), E_sd=(x, "std"),
               acc_mean=(y, "mean"), acc_sd=(y, "std"),
@@ -39,7 +57,8 @@ def cell_summary(tidy: pd.DataFrame, x: str = "E_gpu_total_J",
     g["on_frontier"] = non_dominated(g.rename(columns={"E_mean": x, "acc_mean": y}), x, y)
     base = g
     for k, v in BASELINE_CELL.items():
-        base = base[base[k].astype(str) == str(v)]
+        accepted = {str(x) for x in (v if isinstance(v, tuple) else (v,))}
+        base = base[base[k].astype(str).isin(accepted)]
     g["is_baseline"] = g.index.isin(base.index)
     if len(base):
         b = base.iloc[0]
@@ -61,7 +80,8 @@ def main() -> int:
     cells.to_csv(out / "pareto_cells.csv", index=False)
     print(cells.to_string(index=False))
     print("\nFrontier:")
-    print(cells[cells.on_frontier][CELL_KEYS + ["E_mean", "acc_mean"]].to_string(index=False))
+    print(cells[cells.on_frontier][cell_keys(cells) + ["E_mean", "acc_mean"]]
+          .to_string(index=False))
     return 0
 
 

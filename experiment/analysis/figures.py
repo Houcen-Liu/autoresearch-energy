@@ -18,10 +18,15 @@ import pandas as pd                                               # noqa: E402
 
 import sys                                                        # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pareto import CELL_KEYS, cell_summary                        # noqa: E402
+from pareto import CELL_KEYS, cell_keys, cell_summary                        # noqa: E402
 
 MARKERS = {"dense": "o", "moe": "s"}
-COLORS = {"greedy": "#1f77b4", "patience3": "#d62728"}
+# The run table names the levels "greedy"/"patience3"; the tidy table stores
+# the enforced integer (1/3). Key on both, or every lookup silently falls
+# through to black and the figure's own subtitle promises an encoding that is
+# not there -- which is how the first Phase-1 figure shipped.
+COLORS = {"greedy": "#1f77b4", "patience3": "#d62728",
+          "1": "#1f77b4", "3": "#d62728", 1: "#1f77b4", 3: "#d62728"}
 SIZES = {10: 70, 20: 170}
 
 
@@ -40,7 +45,7 @@ def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
         ax.errorbar(r.E_mean / 1000, r.acc_mean * 100,
                     xerr=(r.E_sd or 0) / 1000, yerr=(r.acc_sd or 0) * 100,
                     fmt=MARKERS.get(r.proposer, "o"),
-                    color=COLORS.get(r.patience, "k"),
+                    color=COLORS.get(r.patience, COLORS.get(str(r.patience), "k")),
                     markersize=(10 if r.loop_budget == 20 else 7),
                     markeredgecolor="black" if r.is_baseline else "none",
                     markeredgewidth=2 if r.is_baseline else 0,
@@ -71,7 +76,7 @@ def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
 
 
 def fig_decomposition(tidy: pd.DataFrame, out: Path) -> Path:
-    g = tidy.groupby(CELL_KEYS, dropna=False)[["E_prop_J", "E_train_J"]].mean().reset_index()
+    g = tidy.groupby(cell_keys(tidy), dropna=False)[["E_prop_J", "E_train_J"]].mean().reset_index()
     labels = [f"{r.proposer}\n{r.patience}\nb{int(r.loop_budget)}" for _, r in g.iterrows()]
     fig, ax = plt.subplots(figsize=(8.5, 4.4))
     ax.bar(labels, g.E_train_J / 1000, label="$E_{train}$ (GPU0)", color="#4c72b0")
@@ -115,7 +120,7 @@ def fig_power_trace(run_dir: Path, out: Path, gpu_train: int = 0,
 def fig_waste(iters: pd.DataFrame, out: Path) -> Path:
     d = iters.copy()
     d["bucket"] = d.decision.fillna("rejected")
-    g = (d.groupby(CELL_KEYS + ["bucket"])["E_iter_J"].sum().unstack(fill_value=0) / 1000)
+    g = (d.groupby(cell_keys(d) + ["bucket"])["E_iter_J"].sum().unstack(fill_value=0) / 1000)
     fig, ax = plt.subplots(figsize=(8.5, 4.4))
     g.plot(kind="bar", stacked=True, ax=ax, colormap="tab20")
     ax.set_ylabel("Energy (kJ)")
@@ -133,7 +138,7 @@ def fig_trajectories(iters: pd.DataFrame, out: Path) -> Path:
     for (run, prop, pat), d in iters.groupby(["run", "proposer", "patience"]):
         d = d.sort_values("iter")
         ax.plot(d["iter"], d.val_acc.cummax() * 100, lw=1,
-                color=COLORS.get(pat, "k"), alpha=0.6,
+                color=COLORS.get(pat, COLORS.get(str(pat), "k")), alpha=0.6,
                 ls="-" if prop == "dense" else "--")
     ax.set_xlabel("iteration")
     ax.set_ylabel("best validation accuracy so far (%)")

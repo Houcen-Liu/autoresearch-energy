@@ -363,7 +363,11 @@ Every one of these cost a wasted session. They are all cheap to check.
 
 ---
 
-## Phase 2 — reasoning as a factor (12 runs, ~5.5 h)
+## Stage 2a — reasoning as a factor (12 runs, ~5.5 h)
+
+*Naming: the proposal's "Phase 2" is the CPU-only study. Reasoning mode is an
+intra-model setting, so varying it is Stage 2. Stage 2a = reasoning,
+Stage 2b = temperature.*
 
 Feasibility already probed on both arms; `gate_evidence/probe_thinking_*.json`
 holds the numbers. `max_tokens` was raised 8192 -> 12288 as a result.
@@ -371,7 +375,7 @@ holds the numbers. `max_tokens` was raised 8192 -> 12288 as a result.
 ```bash
 cd ~/autoresearch-energy
 AR_PROFILE=$PWD/experiment/profiles/server.yaml \
-    .venv/bin/python experiment-runner/ experiment/RunnerConfigPhase2.py
+    .venv/bin/python experiment-runner/ experiment/RunnerConfigStage2a.py
 ```
 
 Factors: `proposer` x `thinking`, 3 repetitions. `patience` and `loop_budget` are
@@ -426,3 +430,44 @@ A plausible outcome is that the MoE is workable on CPU and the dense arm is not.
 That asymmetry is itself the practitioner-facing result — ~3B active parameters
 is exactly what makes CPU serving viable — and is worth reporting rather than
 engineering around.
+
+---
+
+## Exploratory: how far can the loop climb? (~2.5 h, MoE)
+
+Descriptive, n = 1. Phase 1 established the framing: baseline 0.7620, best test
+accuracy over 24 sessions 0.8645, hand-tuned reference 0.9161 — the agent
+recovers **~67 % of the available headroom within 20 iterations**. This asks
+what the remaining third does.
+
+```bash
+# serve the MoE first (this script does not swap models)
+cd ~/autoresearch-energy && source .venv-serve/bin/activate && export HF_HOME=~/hf-cache
+PROPOSER_GPU=1 MOE_MODEL=QuixiAI/Qwen3-30B-A3B-AWQ \
+REVISION=$(grep -A3 '^moe:' experiment/serving/models.yaml | grep revision | awk '{print $2}') \
+  bash experiment/serving/serve_vllm.sh moe 8001
+
+# other shell
+cd ~/autoresearch-energy/experiment && source ../.venv/bin/activate
+python scripts/long_horizon.py --proposer moe --iterations 100
+```
+
+Then, on the finished session:
+
+```bash
+python analysis/trajectory.py  --run-dir <run-dir>    # climb / plateau figure
+python scripts/replay_keeps.py --run-dir <run-dir>    # val-test gap, ~15 min
+```
+
+`replay_keeps.py` is the scientifically interesting half. It checks every kept
+revision out of the session's own git bundle, retrains it from scratch at the
+same budget, and evaluates validation **and** test. That measures whether the
+val–test gap grows as the agent makes more selections against a 5 000-image
+validation split — i.e. whether the loop overfits the metric it selects on.
+Nothing in the replay influenced any decision the agent made, so the
+"test set touched once per session" rule is not broken.
+
+Phase 1 shows no sign of such overfitting (gap flat at ~0.87 pp, r = −0.29
+against kept count), but no session kept more than 4 mutations, so there has been
+no real selection pressure yet. A positive slope here would be a genuine
+methodological finding about agentic AutoML.

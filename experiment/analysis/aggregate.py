@@ -19,7 +19,17 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.session_log import iterations_from_log, read_log     # noqa: E402
 
-CELL_KEYS = ("proposer", "patience", "loop_budget")
+# Cell keys are whichever of these the experiment actually varied. Hardcoding
+# Phase 1's three factors made the Stage-2a summary pool across `thinking`,
+# reporting a table that looked plausible and answered the wrong question.
+# Anything present in the run-table row is treated as a factor.
+ALL_FACTORS = ("proposer", "patience", "loop_budget", "thinking", "temperature")
+CELL_KEYS = ALL_FACTORS
+
+
+def cell_keys_for(cell: dict) -> tuple:
+    """Factors this experiment varied, in a stable order."""
+    return tuple(k for k in ALL_FACTORS if k in cell)
 
 
 def _cell_from_log(records: list[dict]) -> dict:
@@ -97,7 +107,7 @@ def collect(experiments_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd
         it = pd.DataFrame(iterations_from_log(records))
         if (run_dir / "iterations.csv").exists():
             it = pd.read_csv(run_dir / "iterations.csv")
-        for k in CELL_KEYS:
+        for k in cell_keys_for(cell):
             it[k] = cell.get(k)
         it["run"] = run_dir.name
         iters.append(it)
@@ -138,7 +148,10 @@ def main() -> int:
                            ("kept", "kept")):
             if col in tidy.columns:
                 aggs[label] = (col, "mean" if col != "run" else "count")
-        keys = [k for k in CELL_KEYS if k in tidy.columns]
+        keys = [k for k in ALL_FACTORS if k in tidy.columns
+                and tidy[k].nunique(dropna=True) > 1]
+        if not keys:
+            keys = [k for k in ALL_FACTORS if k in tidy.columns]
         if keys:
             print(tidy.groupby(keys, dropna=False).agg(**aggs).to_string())
         else:

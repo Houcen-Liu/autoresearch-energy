@@ -551,10 +551,10 @@ These are worse than crashes, because every health indicator stayed green.
 - The energy comparison stands regardless of any of the above, because `E_prop`
   per proposal does not depend on anything being kept.
 
-### 9.2 Phase 2 feasibility PROBED (2026-08-13) -- and a registered prediction
+### 9.2 Stage 2a (reasoning) feasibility PROBED (2026-08-13) -- and a registered prediction
 
 Both arms probed with the real harness prompt, thinking off then on, 2 repeats
-each. **Both pass**; Phase 2 is viable as designed.
+each. **Both pass**; Stage 2a is viable as designed.
 
 | | dense 14B | MoE 30B-A3B |
 |---|---|---|
@@ -583,14 +583,14 @@ measured proposal-phase power draws (dense 112.8 W, MoE 72.5 W):
 **The sparse model can afford to reason for slightly less energy than the dense
 model spends not reasoning.** If reasoning also improves proposal quality, the
 practitioner claim becomes concrete: on a fixed 20 GB card, sparsity buys you
-reasoning for free relative to a dense model of half the size. Phase 2 tests
+reasoning for free relative to a dense model of half the size. Stage 2a tests
 whether the quality half of that holds; the energy half is already measured.
 
 Note the direction of the inflation difference: the MoE emits *more* reasoning
 (2.76x vs 2.20x) and is still cheaper, because its tokens are ~2x cheaper in both
 time and power. Reasoning length and reasoning cost are separable.
 
-### 9.3 Phase 2 design (unchanged by the probe)
+### 9.3 Stage 2a design (unchanged by the probe)
 
 Thinking tokens are pure proposer energy that yields no artifact, which puts the
 question squarely on the thesis: **does reasoning improve proposal quality enough

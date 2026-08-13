@@ -147,6 +147,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
                 run_dir: Path, seed: int, stub: bool = False,
                 proposer_model: str | None = None,
                 thinking: bool | None = None,
+                temperature: float | None = None,
                 baseline_path: Path | None = None) -> dict:
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -204,7 +205,8 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         prop = Proposer(
             endpoint=pcfg["endpoints"][proposer_arm],
             model=proposer_model or pcfg.get("model_names", {}).get(proposer_arm, proposer_arm),
-            temperature=pcfg["temperature"], top_p=pcfg["top_p"],
+            temperature=(pcfg["temperature"] if temperature is None else temperature),
+            top_p=pcfg["top_p"],
             max_tokens=pcfg["max_tokens"], seed=seed,
             timeout_s=pcfg["request_timeout_s"],
             max_retries=pcfg.get("max_retries", 1),
@@ -441,6 +443,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
     # collapses to the baseline and carries no signal; this retains it, and
     # distinguishes a proposer that repeatedly lands just short from one that
     # collapses to chance.
+    div = _proposal_diversity(run_dir)
     _seen = [h["val_acc"] for h in history if h.get("val_acc") is not None]
     max_obs = max(_seen) if _seen else base["val_acc"]
 
@@ -461,6 +464,13 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
                                ("on" if thinking else "off")),
         "thinking_tokens_total": think_total,
         "max_val_acc_observed": max_obs,
+        "temperature": (pcfg["temperature"] if temperature is None else temperature),
+        # Search diversity. Near 1.0 means the session proposed the same thing
+        # repeatedly -- a degenerate search that costs N inferences and returns
+        # one idea (see EXPERIMENT_PLAN D22).
+        "proposal_similarity_mean": div["mean"],
+        "proposal_similarity_max": div["max"],
+        "proposals_compared": div["n"],
         # A session is valid evidence about the proposer only if the machine
         # behaved and at least one mutation was actually evaluated.
         "valid": bool(infra_rate <= max_rate and evaluated > 0),
@@ -480,6 +490,36 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
               f"-- re-run it; do not analyse it as a result")
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
+
+
+def _proposal_diversity(run_dir: Path) -> dict:
+    """Mean pairwise similarity of the proposals a session produced.
+
+    A propose-evaluate-keep loop under greedy selection restores the same recipe
+    after every rejection, so the prompt barely changes between iterations. A
+    proposer that is too deterministic then returns the same answer repeatedly:
+    N experiments cost N inferences and deliver one idea. Phase 1 measured 0.982
+    mean similarity at temperature 0, with one consecutive pair byte-identical,
+    and no other metric the harness records revealed it.
+
+    Reported per session so that search degeneracy is observable directly rather
+    than inferred from a null result.
+    """
+    import difflib
+    from itertools import combinations
+    texts = [p.read_text(encoding="utf-8", errors="replace")
+             for p in sorted(run_dir.glob("proposal_*.py"))]
+    if len(texts) < 2:
+        return {"mean": None, "max": None, "n": len(texts)}
+    # Cap the pair count: similarity is O(n^2) in file size and a 100-iteration
+    # session would otherwise spend minutes here.
+    pairs = list(combinations(range(len(texts)), 2))
+    if len(pairs) > 300:
+        step = len(pairs) // 300 + 1
+        pairs = pairs[::step]
+    rs = [difflib.SequenceMatcher(None, texts[i], texts[j]).ratio() for i, j in pairs]
+    return {"mean": round(sum(rs) / len(rs), 4), "max": round(max(rs), 4),
+            "n": len(texts)}
 
 
 # ---------------------------------------------------------------------- utils
@@ -571,6 +611,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--stub", action="store_true", help="offline scripted proposer")
     ap.add_argument("--proposer-model", default=None)
+    ap.add_argument("--temperature", type=float, default=None,
+                    help="override the profile's sampling temperature for this "
+                         "session; Stage 2b varies this as a factor")
     ap.add_argument("--thinking", choices=["on", "off"], default=None,
                     help="override the profile's reasoning setting for this "
                          "session; Phase 2 varies this as a factor")
@@ -583,6 +626,7 @@ def main() -> int:
                     loop_budget=a.loop_budget, run_dir=Path(a.run_dir),
                     seed=a.seed, stub=a.stub, proposer_model=a.proposer_model,
                     thinking=(None if a.thinking is None else a.thinking == "on"),
+                    temperature=a.temperature,
                     baseline_path=a.baseline)
     print(json.dumps(s, indent=2))
     return 0
