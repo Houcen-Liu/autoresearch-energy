@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "/tmp/smoke_6ti8b8r5/recipe/train.py", line 183, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/tmp/smoke_6ti8b8r5/recipe/train.py", line 133, in main
+    F.cross_entropy(model(xb0), y_tr[:BATCH_SIZE].to(device)).backward()
+                    ^^^^^^^^^^
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/container.py", line 253, in forward
+    input = module(input)
+            ^^^^^^^^^^^^^
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/batchnorm.py", line 177, in forward
+    self._check_input_dim(input)
+  File "/home/ycb235/autoresearch-energy/.venv/lib/python3.12/site-packages/torch/nn/modules/batchnorm.py", line 496, in _check_input_dim
+    raise ValueError(f"expected 4D input (got {input.dim()}D input)")
+ValueError: expected 4D input (got 2D input)

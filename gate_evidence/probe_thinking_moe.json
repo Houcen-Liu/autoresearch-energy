@@ -1,0 +1,58 @@
+{
+  "model": "moe",
+  "endpoint": "http://127.0.0.1:8001/v1",
+  "max_tokens": 8192,
+  "token_inflation": 2.762803870663205,
+  "latency_inflation": 2.7707360197611868,
+  "passed": true,
+  "modes": {
+    "thinking_off": {
+      "latency_s": 30.70540726184845,
+      "completion_tokens": 2118.5,
+      "truncated": false,
+      "all_have_block": true,
+      "runs": [
+        {
+          "latency_s": 31.00702476501465,
+          "completion_tokens": 2125,
+          "prompt_tokens": 2676,
+          "finish_reason": "stop",
+          "has_block": true,
+          "think_words": 0
+        },
+        {
+          "latency_s": 30.40378975868225,
+          "completion_tokens": 2112,
+          "prompt_tokens": 2676,
+          "finish_reason": "stop",
+          "has_block": true,
+          "think_words": 0
+        }
+      ]
+    },
+    "thinking_on": {
+      "latency_s": 85.07657790184021,
+      "completion_tokens": 5853,
+      "truncated": false,
+      "all_have_block": true,
+      "runs": [
+        {
+          "latency_s": 83.13946080207825,
+          "completion_tokens": 5718,
+          "prompt_tokens": 2672,
+          "finish_reason": "stop",
+          "has_block": true,
+          "think_words": 2348
+        },
+        {
+          "latency_s": 87.01369500160217,
+          "completion_tokens": 5988,
+          "prompt_tokens": 2672,
+          "finish_reason": "stop",
+          "has_block": true,
+          "think_words": 2539
+        }
+      ]
+    }
+  }
+}

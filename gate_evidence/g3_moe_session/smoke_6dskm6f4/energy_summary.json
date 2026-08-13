@@ -1,0 +1,13 @@
+{
+  "E_train_J": 22006.266,
+  "E_prop_J": 11830.903,
+  "E_gpu_total_J": 33837.169,
+  "E_accounted_J": 24622.324,
+  "E_gap_J": 9214.845000000001,
+  "gap_fraction": 0.2723290769390312,
+  "E_wasted_J": 17632.355,
+  "E_per_kept_J": 33837.169,
+  "kept": 1,
+  "alignment_ok": true,
+  "wallclock_s": 334.7612888813019
+}

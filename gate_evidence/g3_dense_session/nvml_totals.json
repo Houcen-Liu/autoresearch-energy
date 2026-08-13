@@ -1,0 +1,10 @@
+{
+  "energy_j_per_device": {
+    "0": 28444.871,
+    "1": 31766.575
+  },
+  "counter_supported": {
+    "0": true,
+    "1": true
+  }
+}

@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/tmp/smoke_6dskm6f4/recipe/train.py", line 180, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/tmp/smoke_6dskm6f4/recipe/train.py", line 148, in main
+    xb = augment(x_tr[idx].to(device, non_blocking=True))
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/smoke_6dskm6f4/recipe/train.py", line 71, in augment
+    xb = F.pad(xb, (4, 4, 4, 4), padding_mode='constant', value=0)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: pad() got an unexpected keyword argument 'padding_mode'
