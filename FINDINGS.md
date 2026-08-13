@@ -551,7 +551,46 @@ These are worse than crashes, because every health indicator stayed green.
 - The energy comparison stands regardless of any of the above, because `E_prop`
   per proposal does not depend on anything being kept.
 
-### 9.2 Proposed Phase 2 -- does thinking pay for itself?
+### 9.2 Phase 2 feasibility PROBED (2026-08-13) -- and a registered prediction
+
+Both arms probed with the real harness prompt, thinking off then on, 2 repeats
+each. **Both pass**; Phase 2 is viable as designed.
+
+| | dense 14B | MoE 30B-A3B |
+|---|---|---|
+| completion tokens, off -> on | 2067 -> 4550 | 2118 -> 5853 |
+| **token inflation** | **2.20x** | **2.76x** |
+| latency, off -> on | 59.7 s -> 131.6 s | 30.7 s -> 85.1 s |
+| throughput | 34.6 tok/s (unchanged) | 68.8 tok/s (unchanged) |
+| max_tokens headroom | 2.70x | 1.40x -> raised ceiling to 12288 |
+| latency vs 600 s timeout | 22 % | 14 % |
+| fenced block present | every reply | every reply |
+
+Throughput is **identical** with thinking on and off in both arms, so reasoning
+costs *more tokens*, not slower tokens. Thinking energy is therefore proportional
+to thinking length -- a clean interpretation for the analysis.
+
+**Registered prediction, from the probe alone.** Combining inflation with the
+measured proposal-phase power draws (dense 112.8 W, MoE 72.5 W):
+
+| configuration | energy per proposal |
+|---|---|
+| MoE, thinking off | 2.23 kJ |
+| **MoE, thinking on** | **6.17 kJ** |
+| **dense, thinking off** | **6.73 kJ** |
+| dense, thinking on | 14.84 kJ |
+
+**The sparse model can afford to reason for slightly less energy than the dense
+model spends not reasoning.** If reasoning also improves proposal quality, the
+practitioner claim becomes concrete: on a fixed 20 GB card, sparsity buys you
+reasoning for free relative to a dense model of half the size. Phase 2 tests
+whether the quality half of that holds; the energy half is already measured.
+
+Note the direction of the inflation difference: the MoE emits *more* reasoning
+(2.76x vs 2.20x) and is still cheaper, because its tokens are ~2x cheaper in both
+time and power. Reasoning length and reasoning cost are separable.
+
+### 9.3 Phase 2 design (unchanged by the probe)
 
 Thinking tokens are pure proposer energy that yields no artifact, which puts the
 question squarely on the thesis: **does reasoning improve proposal quality enough
@@ -564,11 +603,16 @@ Design: `proposer` x `thinking`, 2x2, fixing `patience=greedy` and
 `loop_budget=10`, 3 repetitions = **12 runs, ~5-7 hours**. Adding thinking as a
 fourth factor to Phase 1 would instead mean 48 runs and much longer sessions.
 
-Feasibility must be probed first, on both arms: whether thinking overruns
-`max_tokens: 8192` (if so it measures truncation, not reasoning), whether latency
-approaches `request_timeout_s: 600`, and whether a fenced code block still
-arrives. Probe after Phase 1 finishes -- probing mid-run contaminates the energy
-measurement of the executing session.
+Measured schedule from the probe: dense sessions 20 min (off) and 32 min (on),
+MoE 15 min and 24 min. **Total ~5.5 h for 12 runs**, ~6.5 h with the usual
+re-run buffer.
+
+One configuration change was required and applied: `max_tokens` 8192 -> 12288.
+The MoE's reasoning traces averaged 5853 tokens with run-to-run variation of
+270 tokens, leaving only 1.40x headroom -- a longer trace would have truncated
+mid-study, and a truncated reply is a contract violation confounded with the
+factor under test. Raising the ceiling does not change thinking-off behaviour
+(those replies stop at ~2100 tokens regardless), so it costs nothing.
 
 
 ---

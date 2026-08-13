@@ -35,6 +35,24 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "harness" / "templates"
 
 
+def _thinking_override(extra: dict | None, thinking: bool | None) -> dict | None:
+    """Return extra_params with reasoning forced on or off.
+
+    Phase 1 pinned reasoning off for both arms as a fixed variable (D9). Phase 2
+    promotes it to a factor, so the run table -- not the profile -- decides. The
+    override is applied here rather than by editing the profile per run, because
+    a profile mutated mid-experiment is exactly the kind of state that makes runs
+    non-comparable after the fact.
+    """
+    if thinking is None:
+        return extra
+    out = dict(extra or {})
+    kw = dict(out.get("chat_template_kwargs") or {})
+    kw["enable_thinking"] = bool(thinking)
+    out["chat_template_kwargs"] = kw
+    return out
+
+
 # --------------------------------------------------------------------- render
 def render_program_md(**ctx) -> str:
     """Minimal Jinja-subset renderer, so the harness has no template dependency."""
@@ -128,6 +146,7 @@ def run_training(workdir: Path, run_dir: Path, iteration: int, cfg: dict,
 def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int,
                 run_dir: Path, seed: int, stub: bool = False,
                 proposer_model: str | None = None,
+                thinking: bool | None = None,
                 baseline_path: Path | None = None) -> dict:
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -190,7 +209,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
             timeout_s=pcfg["request_timeout_s"],
             max_retries=pcfg.get("max_retries", 1),
             time_budget_s=pcfg.get("time_budget_s"),
-            extra_params=pcfg.get("extra_params"),
+            extra_params=_thinking_override(pcfg.get("extra_params"), thinking),
             system_suffix=pcfg.get("system_suffix", ""),
             prompt_suffix=pcfg.get("prompt_suffix", ""),
         )
@@ -214,6 +233,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
     best_acc = base["val_acc"]
     best_sha = repo.head()
     regressions = 0
+    think_total = 0
     provisional: list[int] = []
     history: list[dict] = []
     counts = {"kept": 0, "reverted": 0, "rejected": 0, "errored": 0}
@@ -298,6 +318,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
                             "val_acc": None, "outcome": "errored"})
             continue
         _think = sum(a.thinking_tokens for a in resp.attempt_log)
+        think_total += _think
         print(f"[arloop] iter {i}: proposal in {resp.latency_s:.0f}s, "
               f"{resp.total_completion_tokens} completion tokens"
               + (f" ({_think} of them reasoning)" if _think else "")
@@ -416,6 +437,13 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
                                              DEFAULT_MAX_INFRA_ERROR_RATE))
     evaluated = sum(1 for h in history if h["val_acc"] is not None)
 
+    # Best accuracy SEEN, kept or not. When nothing clears eps, best_val_acc
+    # collapses to the baseline and carries no signal; this retains it, and
+    # distinguishes a proposer that repeatedly lands just short from one that
+    # collapses to chance.
+    _seen = [h["val_acc"] for h in history if h.get("val_acc") is not None]
+    max_obs = max(_seen) if _seen else base["val_acc"]
+
     summary = {
         "iterations": loop_budget, "aborted_early": aborted_early, **counts,
         **{f"err_{k}": v for k, v in err_counts.items()},
@@ -425,6 +453,14 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         "test_acc": test_acc, "best_iter": best_iter,
         "no_progress": counts["kept"] == 0,
         "eps": eps,
+        # Reasoning is a FACTOR in Phase 2 and a fixed variable in Phase 1.
+        # Either way, record what actually happened: a serving stack that
+        # accepts `enable_thinking` and ignores it would otherwise be
+        # indistinguishable from one that honours it.
+        "thinking_requested": ("unset" if thinking is None else
+                               ("on" if thinking else "off")),
+        "thinking_tokens_total": think_total,
+        "max_val_acc_observed": max_obs,
         # A session is valid evidence about the proposer only if the machine
         # behaved and at least one mutation was actually evaluated.
         "valid": bool(infra_rate <= max_rate and evaluated > 0),
@@ -535,6 +571,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--stub", action="store_true", help="offline scripted proposer")
     ap.add_argument("--proposer-model", default=None)
+    ap.add_argument("--thinking", choices=["on", "off"], default=None,
+                    help="override the profile's reasoning setting for this "
+                         "session; Phase 2 varies this as a factor")
     ap.add_argument("--baseline", default=None,
                     help="override the baseline recipe (integration testing)")
     a = ap.parse_args()
@@ -543,6 +582,7 @@ def main() -> int:
     s = run_session(cfg, proposer_arm=a.proposer, patience=a.patience,
                     loop_budget=a.loop_budget, run_dir=Path(a.run_dir),
                     seed=a.seed, stub=a.stub, proposer_model=a.proposer_model,
+                    thinking=(None if a.thinking is None else a.thinking == "on"),
                     baseline_path=a.baseline)
     print(json.dumps(s, indent=2))
     return 0

@@ -360,3 +360,69 @@ Every one of these cost a wasted session. They are all cheap to check.
 | Session marked invalid | `invalid_reason` in `summary.json`; infra → re-run, agent-side → keep it |
 | Energy numbers implausible | `align_check.py` → G4/G5 before believing anything |
 | Model won't load after a swap | `experiments/vllm_<arm>.log` → almost always OOM |
+
+---
+
+## Phase 2 — reasoning as a factor (12 runs, ~5.5 h)
+
+Feasibility already probed on both arms; `gate_evidence/probe_thinking_*.json`
+holds the numbers. `max_tokens` was raised 8192 -> 12288 as a result.
+
+```bash
+cd ~/autoresearch-energy
+AR_PROFILE=$PWD/experiment/profiles/server.yaml \
+    .venv/bin/python experiment-runner/ experiment/RunnerConfigPhase2.py
+```
+
+Factors: `proposer` x `thinking`, 3 repetitions. `patience` and `loop_budget` are
+fixed at greedy/10 — Phase 1 found no patience effect at all, and budget 20 cost
++107.6 % energy per kept mutation, so neither earns a Phase-2 run.
+
+**Watch the manipulation check.** After each run the console prints
+`thinking=<on|off>, reasoning tokens=<n>`. Expect ~0 for off and several
+thousand for on. If a `thinking=on` run reports 0, the endpoint accepted the
+parameter and ignored it: the run is marked invalid automatically, and you should
+stop rather than collect a null result that is really a plumbing failure.
+
+Expected per-session wall-clock, from the probe: dense 20 min (off) / 32 min
+(on); MoE 15 min / 24 min.
+
+---
+
+## Probing CPU-only serving before scheduling it (~30 min)
+
+The CPU phase estimate spans 7–20 h only because CPU throughput here is unknown.
+Measure it first.
+
+```bash
+# build llama.cpp (once)
+cd ~ && git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp
+cmake -B build -DGGML_NATIVE=ON && cmake --build build -j"$(nproc)"
+
+# fetch GGUF weights for BOTH arms at the same quant (D3 fairness rule)
+#   Qwen3-14B  Q4_K_M  ~9 GB
+#   Qwen3-30B-A3B Q4_K_M ~18 GB
+# then serve on CPU only:
+./build/bin/llama-server -m <model>.gguf --host 127.0.0.1 --port 8080 \
+    -c 16384 -ngl 0 -t "$(nproc)" --alias dense
+
+# in another shell
+cd ~/autoresearch-energy/experiment
+../.venv/bin/python scripts/probe_cpu.py --model dense \
+    --endpoint http://127.0.0.1:8080/v1
+```
+
+`-ngl 0` forces all layers onto CPU — verify with `nvidia-smi` that GPU memory
+stays at zero, or you are measuring GPU serving with extra steps.
+
+The probe reports tokens/s, projected session length, and whether the proposal
+exceeds `request_timeout_s`. **The dense arm is the one at risk**: 14.8B dense
+parameters are memory-bandwidth bound on CPU, and if a proposal takes longer than
+600 s then every session dies on infrastructure errors rather than producing
+data. Raise `request_timeout_s` and `time_budget_s` before running the phase if
+the probe says so.
+
+A plausible outcome is that the MoE is workable on CPU and the dense arm is not.
+That asymmetry is itself the practitioner-facing result — ~3B active parameters
+is exactly what makes CPU serving viable — and is worth reporting rather than
+engineering around.
