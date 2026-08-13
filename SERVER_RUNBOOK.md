@@ -247,11 +247,16 @@ study is wrong**. This is the check that protects the paper's central claim.
 ### 4.3 GATE G6 — idle stability
 
 ```bash
-python measurement/idle_baseline.py --minutes 30 --out-dir ../experiments/idle_before
+IDLE_DIR=../experiments/idle_before
+mkdir -p "$IDLE_DIR"
+energibridge -o "$IDLE_DIR/energibridge.csv" -i 100 --summary -- \
+  python measurement/idle_baseline.py --minutes 30 --out-dir "$IDLE_DIR"
 ```
 
-Record the idle draw of both cards; the non-active GPU's standby power enters the
-baseline subtraction.
+Record both GPU boards and the host counter with the proposer model resident in the
+same state as the campaign. Gross energy remains the primary outcome. A matched
+before/after pair permits an optional idle-subtracted sensitivity analysis; do not
+subtract a single unmatched rate or silently replace the gross result.
 
 ### 4.4 Model swapping works
 
@@ -311,11 +316,14 @@ python analysis/figures.py --tidy ../experiments/.../tidy.csv \
     --iterations ../experiments/.../iterations.csv \
     --trace-run ../experiments/.../run_0_repetition_0 \
     --out-dir ../experiments/.../figures
-python measurement/idle_baseline.py --minutes 30 --out-dir ../experiments/idle_after
+IDLE_DIR=../experiments/idle_after
+mkdir -p "$IDLE_DIR"
+energibridge -o "$IDLE_DIR/energibridge.csv" -i 100 --summary -- \
+  python measurement/idle_baseline.py --minutes 30 --out-dir "$IDLE_DIR"
 ```
 
-The second idle measurement bounds drift across the whole campaign — it is a claim in the
-report, not housekeeping.
+The second matched idle measurement bounds drift across the campaign. Report the gross
+measurement first and any idle-subtracted estimate as a labelled sensitivity analysis.
 
 ---
 
@@ -379,8 +387,9 @@ AR_PROFILE=$PWD/experiment/profiles/server.yaml \
 ```
 
 Factors: `proposer` x `thinking`, 3 repetitions. `patience` and `loop_budget` are
-fixed at greedy/10 — Phase 1 found no patience effect at all, and budget 20 cost
-+107.6 % energy per kept mutation, so neither earns a Phase-2 run.
+fixed at greedy/10. Phase 1 did not show a clear benefit from additional
+patience, and the pooled energy per retained mutation was lower at budget 10;
+the exploratory long-horizon session below asks the separate trajectory question.
 
 **Watch the manipulation check.** After each run the console prints
 `thinking=<on|off>, reasoning tokens=<n>`. Expect ~0 for off and several
@@ -435,35 +444,108 @@ engineering around.
 
 ## Exploratory: how far can the loop climb? (~2.5 h, MoE)
 
-Descriptive, n = 1. Phase 1 established the framing: baseline 0.7620, best test
-accuracy over 24 sessions 0.8645, hand-tuned reference 0.9161 — the agent
-recovers **~67 % of the available headroom within 20 iterations**. This asks
-what the remaining third does.
+Descriptive, n = 1. Phase 1 established that the loop can improve the baseline,
+but its sessions ended after at most 20 iterations. This run asks whether a much
+longer search keeps climbing, plateaus, or increasingly selects validation gains
+that do not transfer to the test set.
 
 ```bash
-# serve the MoE first (this script does not swap models)
+# Shell A: serve the pinned MoE on GPU 1. Leave this running through the
+# long-horizon session and both idle measurements.
 cd ~/autoresearch-energy && source .venv-serve/bin/activate && export HF_HOME=~/hf-cache
+pkill -u "$USER" -f "vllm serve" || true
+sleep 8
 PROPOSER_GPU=1 MOE_MODEL=QuixiAI/Qwen3-30B-A3B-AWQ \
 REVISION=$(grep -A3 '^moe:' experiment/serving/models.yaml | grep revision | awk '{print $2}') \
   bash experiment/serving/serve_vllm.sh moe 8001
 
-# other shell
+# Shell B: preflight and warm the exact request before opening a measured run.
 cd ~/autoresearch-energy/experiment && source ../.venv/bin/activate
-python scripts/long_horizon.py --proposer moe --iterations 100
+python scripts/preflight.py --profile profiles/server.yaml
+python scripts/probe_proposer.py --profile profiles/server.yaml \
+  --model moe --endpoint http://127.0.0.1:8001/v1 --timeout 600
+
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+RUN_DIR="$HOME/autoresearch-energy/experiments/long_horizon/moe_100it_seed0_$STAMP"
+mkdir -p "$RUN_DIR/idle_before"
+printf '%s\n' "$RUN_DIR" > "$HOME/autoresearch-energy/experiments/long_horizon/LATEST"
+git -C .. rev-parse HEAD > "$RUN_DIR/code_commit.txt"
+cp profiles/server.yaml "$RUN_DIR/server.yaml"
+cp serving/models.yaml "$RUN_DIR/models.yaml"
+python -m pip freeze > "$RUN_DIR/train_requirements.txt"
+../.venv-serve/bin/python -m pip freeze > "$RUN_DIR/serve_requirements.txt"
+nvidia-smi -q > "$RUN_DIR/nvidia-smi-q.txt"
+
+# Matched idle baseline, with the MoE already resident.
+energibridge -o "$RUN_DIR/idle_before/energibridge.csv" -i 100 --summary -- \
+  python measurement/idle_baseline.py --minutes 5 \
+    --out-dir "$RUN_DIR/idle_before" \
+  2>&1 | tee "$RUN_DIR/idle_before.log"
+
+# Measured 100-iteration session. The harness records both GPU boards; the
+# wrapper records the AMD CPU-package counter.
+set -o pipefail
+energibridge -o "$RUN_DIR/energibridge.csv" -i 100 --summary -- \
+  python -u scripts/long_horizon.py \
+    --profile "$PWD/profiles/server.yaml" --proposer moe \
+    --iterations 100 --patience 1 --seed 0 --thinking off \
+    --run-dir "$RUN_DIR" \
+  2>&1 | tee "$RUN_DIR/console.log"
+RUN_RC=${PIPESTATUS[0]}
+
+# Matched idle measurement before changing model residency.
+mkdir -p "$RUN_DIR/idle_after"
+energibridge -o "$RUN_DIR/idle_after/energibridge.csv" -i 100 --summary -- \
+  python measurement/idle_baseline.py --minutes 5 \
+    --out-dir "$RUN_DIR/idle_after" \
+  2>&1 | tee "$RUN_DIR/idle_after.log"
+if [ "$RUN_RC" -ne 0 ]; then
+  echo "long-horizon session failed with exit code $RUN_RC; preserve this run directory and diagnose it"
+  exit "$RUN_RC"
+fi
 ```
 
-Then, on the finished session:
+Validate and analyse the finished session before stopping the server:
 
 ```bash
-python analysis/trajectory.py  --run-dir <run-dir>    # climb / plateau figure
-python scripts/replay_keeps.py --run-dir <run-dir>    # val-test gap, ~15 min
+python measurement/energy_align.py --run-dir "$RUN_DIR" \
+  --gpu-train 0 --gpu-prop 1 | tee "$RUN_DIR/energy_align.log"
+python measurement/idle_subtract.py --run-dir "$RUN_DIR" \
+  --gpu-train 0 --gpu-prop 1 | tee "$RUN_DIR/idle_subtract.log"
+python analysis/trajectory.py --run-dir "$RUN_DIR" | tee "$RUN_DIR/trajectory.log"
+python -c 'import json,sys; s=json.load(open(sys.argv[1])); print(json.dumps(s,indent=2)); assert s["iterations"]==100 and s["valid"] and not s["aborted_early"] and s["thinking_tokens_total"]==0' \
+  "$RUN_DIR/summary.json"
 ```
+
+`idle_subtracted_summary.json` is a matched-idle **sensitivity analysis**, not
+the primary result. Report gross measured energy first; do not clamp a negative
+idle-subtracted component if the sensitivity calculation produces one.
 
 `replay_keeps.py` is the scientifically interesting half. It checks every kept
 revision out of the session's own git bundle, retrains it from scratch at the
 same budget, and evaluates validation **and** test. That measures whether the
 val–test gap grows as the agent makes more selections against a 5 000-image
 validation split — i.e. whether the loop overfits the metric it selects on.
+Stop vLLM only after the second idle trace, then replay the kept checkpoints:
+
+```bash
+pkill -u "$USER" -f "vllm serve" || true
+python scripts/replay_keeps.py --profile profiles/server.yaml \
+  --run-dir "$RUN_DIR" | tee "$RUN_DIR/replay.log"
+test -f "$RUN_DIR/replay_keeps.json"
+```
+
+The run directory is experimental data, not source code. Archive it and copy it
+back rather than adding it to Git:
+
+```bash
+RUN_NAME=$(basename "$RUN_DIR")
+RUN_PARENT=$(dirname "$RUN_DIR")
+tar --exclude="$RUN_NAME/recipe/.git" -C "$RUN_PARENT" \
+  -czf "$RUN_PARENT/$RUN_NAME.tar.gz" "$RUN_NAME"
+sha256sum "$RUN_PARENT/$RUN_NAME.tar.gz" \
+  > "$RUN_PARENT/$RUN_NAME.tar.gz.sha256"
+```
 Nothing in the replay influenced any decision the agent made, so the
 "test set touched once per session" rule is not broken.
 

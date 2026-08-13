@@ -4,6 +4,9 @@ Yields the dependent variables of the experiment:
 
     E_prop[i]   GPU(proposer) energy-counter delta over the propose phase
     E_train[i]  GPU(train)    energy-counter delta over the train phase
+    E_cpu_pkg   CPU-package counter delta over the complete session
+    E_dram      DRAM counter delta over the complete session, when exposed
+    E_measured  sum of the available GPU, CPU-package and DRAM measurements
     E_gap       energy outside any phase, reported explicitly so nothing is lost
     E_wasted    sum over iterations whose mutation was ultimately reverted,
                 including chains discarded by a patience rollback
@@ -39,6 +42,83 @@ def _counter_delta(df: pd.DataFrame, dev: int, t0: float, t1: float) -> float:
     return float((d.energy_mj.iloc[-1] - d.energy_mj.iloc[0]) / 1000.0)
 
 
+def _energibridge_counter_delta(df: pd.DataFrame, column: str,
+                                t0: float, t1: float) -> float | None:
+    """Return a joule-counter delta inside the session's wall-clock bounds.
+
+    EnergiBridge records epoch milliseconds while the session log records epoch
+    seconds. Restricting both to the same bounds avoids charging profiler startup
+    and shutdown to the experiment. Unlike the NVML trace, EnergiBridge exposes
+    no power field with which to estimate a sub-sample interval, so fewer than
+    two aligned samples means that component is unavailable.
+    """
+    timestamps = pd.to_numeric(df["Time"], errors="coerce") / 1000.0
+    energy = pd.to_numeric(df[column], errors="coerce")
+    aligned = pd.DataFrame({"t_wall": timestamps, "energy_J": energy}).dropna()
+    aligned = aligned[
+        (aligned.t_wall >= t0) & (aligned.t_wall <= t1)
+    ].sort_values("t_wall")
+    if len(aligned) < 2:
+        return None
+    return float(aligned.energy_J.iloc[-1] - aligned.energy_J.iloc[0])
+
+
+def _sum_energibridge_counters(df: pd.DataFrame, columns: list[str],
+                               t0: float, t1: float) -> float | None:
+    deltas = [
+        delta for column in columns
+        if (delta := _energibridge_counter_delta(df, column, t0, t1)) is not None
+    ]
+    return float(sum(deltas)) if deltas else None
+
+
+def _host_energy(run_dir: Path, t0: float, t1: float) -> tuple[float | None,
+                                                               float | None]:
+    """Read CPU-package and DRAM energy without double-counting sub-counters.
+
+    AMD EnergiBridge traces expose one ``CPU_ENERGY (J)`` package total alongside
+    many ``CORE*_ENERGY`` counters. The core counters are components of that
+    total and are deliberately ignored. Intel traces instead expose package and
+    DRAM counters, potentially one of each per socket; those groups are summed
+    separately.
+    """
+    path = run_dir / "energibridge.csv"
+    if not path.exists():
+        return None, None
+
+    try:
+        df = pd.read_csv(path)
+        if "Time" not in df.columns:
+            return None, None
+
+        normalized = {column: str(column).strip().upper() for column in df.columns}
+        amd_package_columns = [
+            column for column, name in normalized.items()
+            if name == "CPU_ENERGY (J)"
+        ]
+        if amd_package_columns:
+            package_columns = amd_package_columns
+        else:
+            package_columns = [
+                column for column, name in normalized.items()
+                if "PACKAGE_ENERGY" in name
+            ]
+        dram_columns = [
+            column for column, name in normalized.items()
+            if "DRAM_ENERGY" in name
+        ]
+
+        cpu_package = _sum_energibridge_counters(
+            df, package_columns, t0, t1
+        )
+        dram = _sum_energibridge_counters(df, dram_columns, t0, t1)
+        return cpu_package, dram
+    except (OSError, ValueError, KeyError, pd.errors.ParserError):
+        # Host energy is an optional measurement. A malformed or unsupported
+        # trace must not invalidate the independently measured GPU result.
+        return None, None
+
+
 def align(run_dir: str | Path, gpu_train: int, gpu_prop: int,
           tol: float = 0.01) -> dict:
     run_dir = Path(run_dir)
@@ -60,6 +140,10 @@ def align(run_dir: str | Path, gpu_train: int, gpu_prop: int,
     session_train = _counter_delta(nvml, gpu_train, session_t0, session_t1)
     session_prop = _counter_delta(nvml, gpu_prop, session_t0, session_t1)
     session_total = session_train + session_prop
+    cpu_package, dram = _host_energy(run_dir, session_t0, session_t1)
+    measured_total = session_total + sum(
+        value for value in (cpu_package, dram) if value is not None
+    )
 
     accounted = float(per_iter.E_iter_J.sum()) if len(per_iter) else 0.0
     gap = session_total - accounted
@@ -74,6 +158,9 @@ def align(run_dir: str | Path, gpu_train: int, gpu_prop: int,
         "E_train_J": session_train,
         "E_prop_J": session_prop,
         "E_gpu_total_J": session_total,
+        "E_cpu_pkg_J": cpu_package,
+        "E_dram_J": dram,
+        "E_measured_total_J": measured_total,
         "E_accounted_J": accounted,
         "E_gap_J": gap,
         "gap_fraction": residual,

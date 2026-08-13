@@ -90,6 +90,9 @@ def run_training(workdir: Path, run_dir: Path, iteration: int, cfg: dict,
     result_path = workdir / "result.json"
     ckpt_path = workdir / "model.pt"
     result_path.unlink(missing_ok=True)
+    # Every candidate trains from scratch. A prior iteration's checkpoint must
+    # not make a recipe that writes only result.json look checkpoint-capable.
+    ckpt_path.unlink(missing_ok=True)
 
     env = dict(os.environ)
     env["AR_DATA_DIR"] = str(Path(cfg["workload"]["data_dir"]).resolve())
@@ -234,6 +237,11 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
 
     best_acc = base["val_acc"]
     best_sha = repo.head()
+    # Keep the winning checkpoint identity alongside the winning recipe SHA.
+    # Recovering it later by matching validation accuracy is unsafe: accuracy is
+    # discrete, so a reverted proposal can tie the best score and would then be
+    # mistaken for the winner by a reverse search through history.
+    best_iter = 0
     regressions = 0
     think_total = 0
     provisional: list[int] = []
@@ -374,6 +382,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         acc = res["val_acc"]
         if acc > best_acc + eps:
             best_acc, best_sha = acc, repo.head()
+            best_iter = i
             regressions, provisional = 0, []
             counts["kept"] += 1
             outcome = "kept (new best)"
@@ -422,7 +431,6 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
 
     # --- final evaluation --------------------------------------------------
     test_acc = None
-    best_iter = _best_iteration(history, best_acc)   # 0 == the baseline recipe
     ckpt = run_dir / f"model_{best_iter:03d}.pt"
     if ckpt.exists():
         log.emit("final_eval_start", best_sha=best_sha, best_iter=best_iter)
@@ -560,13 +568,6 @@ def _should_abort(err_counts: dict, done: int, max_rate: float,
 
 def _device(cfg: dict) -> str:
     return "cpu" if str(cfg["gpus"]["train"]).lower() == "cpu" else "cuda"
-
-
-def _best_iteration(history: list[dict], best_acc: float) -> int:
-    for r in reversed(history):
-        if r["val_acc"] is not None and abs(r["val_acc"] - best_acc) < 1e-9:
-            return r["iter"]
-    return 0
 
 
 def _final_eval(workdir: Path, run_dir: Path, ckpt: Path, cfg: dict) -> float | None:

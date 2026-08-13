@@ -91,6 +91,25 @@ def test_greedy_keeps_improvements(tmp_path, monkeypatch):
     assert abs(s["best_val_acc"] - 0.75) < 1e-9
 
 
+def test_reverted_tie_cannot_replace_winning_checkpoint(tmp_path, monkeypatch):
+    # Validation accuracy is discrete. A later proposal can exactly tie the
+    # winner but must still be reverted because it does not clear eps.
+    _install(monkeypatch, [0.75, 0.75])
+    (tmp_path / "model_001.pt").touch()
+    evaluated = {}
+
+    def fake_final_eval(workdir, run_dir, ckpt, cfg):
+        evaluated["checkpoint"] = ckpt.name
+        return 0.66
+
+    monkeypatch.setattr(agent_loop, "_final_eval", fake_final_eval)
+    s = _run(tmp_path, patience=1, budget=2)
+    assert s["kept"] == 1
+    assert s["reverted"] == 1
+    assert s["best_iter"] == 1
+    assert evaluated["checkpoint"] == "model_001.pt"
+
+
 def test_patience3_tolerates_two_then_rolls_back(tmp_path, monkeypatch):
     _install(monkeypatch, [0.69, 0.68, 0.67])
     s = _run(tmp_path, patience=3, budget=3)

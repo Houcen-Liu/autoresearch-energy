@@ -138,7 +138,7 @@ def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
                            label="budget 20")]
     ax.legend(handles=handles, fontsize=7.5, loc="lower right", framealpha=0.95)
 
-    ax.set_xlabel("Session energy $E_{total}$ (kJ)")
+    ax.set_xlabel("Session GPU-board energy $E_{GPU}$ (kJ)")
     ax.set_ylabel("CIFAR-10 test accuracy (%)")
     ax.set_title("Energy/accuracy Pareto frontier")
     ax.grid(alpha=0.25)
@@ -154,11 +154,11 @@ def fig_decomposition(tidy: pd.DataFrame, out: Path) -> Path:
     g = tidy.groupby(cell_keys(tidy), dropna=False)[["E_prop_J", "E_train_J"]].mean().reset_index()
     labels = [_label(r).replace("/", "\n") for _, r in g.iterrows()]
     fig, ax = plt.subplots(figsize=(8.5, 4.4))
-    ax.bar(labels, g.E_train_J / 1000, label="$E_{train}$ (GPU0)", color="#4c72b0")
+    ax.bar(labels, g.E_train_J / 1000, label="GPU0 board", color="#4c72b0")
     ax.bar(labels, g.E_prop_J / 1000, bottom=g.E_train_J / 1000,
-           label="$E_{prop}$ (GPU1)", color="#dd8452")
-    ax.set_ylabel("Energy (kJ)")
-    ax.set_title("Session energy decomposition by physical device")
+           label="GPU1 board", color="#dd8452")
+    ax.set_ylabel("Gross board energy (kJ)")
+    ax.set_title("Session GPU energy by physical device")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
@@ -204,8 +204,8 @@ def fig_waste(iters: pd.DataFrame, out: Path) -> Path:
     g = g.div(n_sessions, axis=0)
     fig, ax = plt.subplots(figsize=(8.5, 4.4))
     g.plot(kind="bar", stacked=True, ax=ax, colormap="tab20")
-    ax.set_ylabel("Energy per session (kJ)")
-    ax.set_title("Where the energy went, by iteration outcome")
+    ax.set_ylabel("Attributed GPU energy per session (kJ)")
+    ax.set_title("Aligned iteration energy by outcome")
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
     p = out / "fig4_waste.png"
@@ -338,21 +338,21 @@ def fig_diagnostics(tidy: pd.DataFrame, out: Path) -> Path:
             ax.plot(xs, a + b * xs, color=c, lw=1.4, ls="--")
             ax.annotate(f"{b*1000/60:.0f} W", (xs[-1], a + b * xs[-1]),
                         color=c, fontsize=8, ha="right", va="bottom")
-    ax.set_xlabel("session wall-clock (min)"); ax.set_ylabel("$E_{total}$ (kJ)")
-    ax.set_title("(a) energy vs time; slope = mean power")
+    ax.set_xlabel("session wall-clock (min)"); ax.set_ylabel("$E_{GPU}$ (kJ)")
+    ax.set_title("(a) energy vs time; regression slope")
     ax.legend(fontsize=8); ax.grid(alpha=0.25)
 
     ax = axes[1]
     if has_arm:
         groups = [(a, d.E_gpu_total_J / 1000) for a, d in tidy.groupby("proposer")]
-        bp = ax.boxplot([g for _, g in groups], labels=[a for a, _ in groups],
+        bp = ax.boxplot([g for _, g in groups], tick_labels=[a for a, _ in groups],
                         patch_artist=True, widths=0.55)
         for patch, (a, _) in zip(bp["boxes"], groups):
             patch.set_facecolor(arm_style.get(a, "0.6")); patch.set_alpha(0.35)
         for i, (a, g) in enumerate(groups, start=1):
             ax.scatter(np.random.default_rng(0).normal(i, 0.04, len(g)), g,
                        s=18, color=arm_style.get(a, "0.3"), zorder=3, alpha=0.9)
-    ax.set_ylabel("$E_{total}$ (kJ)")
+    ax.set_ylabel("$E_{GPU}$ (kJ)")
     ax.set_title("(b) session distribution per arm")
     ax.grid(alpha=0.25, axis="y")
 
@@ -369,7 +369,7 @@ def fig_diagnostics(tidy: pd.DataFrame, out: Path) -> Path:
             r = np.corrcoef(tidy[order], tidy.E_gpu_total_J)[0, 1]
             ax.annotate(f"r = {r:+.2f}", (0.04, 0.92), xycoords="axes fraction",
                         fontsize=8)
-    ax.set_xlabel("run order"); ax.set_ylabel("$E_{total}$ (kJ)")
+    ax.set_xlabel("run order"); ax.set_ylabel("$E_{GPU}$ (kJ)")
     ax.set_title("(c) drift across the campaign")
     ax.grid(alpha=0.25)
 

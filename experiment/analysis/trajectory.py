@@ -1,7 +1,7 @@
 """Trajectory of a long-horizon session: climb, plateau, or overfit.
 
 Produces one figure and a small set of statistics that answer, descriptively:
-where did improvement stop, how much energy did each successive keep cost, and
+where improvement stopped, whether gains were front-loaded or sustained, and
 how much of the headroom to the hand-tuned reference was recovered.
 
     python analysis/trajectory.py --run-dir ../experiments/long_horizon/moe_100it_...

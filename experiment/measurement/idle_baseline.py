@@ -1,12 +1,10 @@
-"""Idle-draw characterisation (gate G6).
+"""GPU idle-draw characterisation (gate G6).
 
-Measures both GPUs and the CPU package at rest for `--minutes`, so that:
-  * standby draw of the non-active GPU can be subtracted if non-trivial,
-  * drift across a night of batches can be bounded (<2 % is the gate),
-  * Phase-2 CPU proposer energy has a host baseline to subtract.
-
-Run it before the first batch and again after the last one; the two numbers going
-into the report as a stability claim.
+This utility records both GPUs through NVML. It does not measure CPU or DRAM;
+wrap it with EnergiBridge when a simultaneous host-idle trace is required. Run
+matched before/after measurements with the same model-residency state so drift
+can be quantified before considering any optional idle-subtracted sensitivity.
+Gross session energy remains the primary auditable outcome.
 """
 from __future__ import annotations
 

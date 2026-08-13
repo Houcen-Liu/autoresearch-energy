@@ -1,9 +1,14 @@
 \section{Results}\label{sec:results}
 
 All 24 Phase-1 sessions completed and were valid: no session exceeded the 25\,\%
-infrastructure-error threshold, and none was quarantined. Reported energies are
-NVML per-device integrals; accuracy is CIFAR-10 test-set accuracy measured once
-per session on the best recipe the agent retained.
+infrastructure-error threshold, and none was quarantined. The registered
+inferential outcome is gross NVML GPU-board energy; no idle subtraction is
+applied. Archived EnergiBridge traces also expose an AMD CPU-package counter, so
+a timestamp-aligned GPU+CPU-package sensitivity total is reported. It excludes
+DRAM and other host components and is not called full-system energy. Accuracy is
+CIFAR-10 test-set accuracy measured once per session on the retained recipe.
+The measured-component sensitivity reproduces the registered energy inference:
+ART gives $F=42.42$, $p=7.15\times10^{-6}$ and partial $\eta^2=0.726$ for proposer.
 
 \subsection{Descriptive results}
 
@@ -11,15 +16,17 @@ per session on the best recipe the agent retained.
 \centering
 \caption{Phase-1 session outcomes by proposer architecture ($n=12$ each).}
 \label{tab:headline}
-\begin{tabular}{lrrr}
+\small
+\begin{tabular}{p{3.0cm}rrr}
 \toprule
-& dense 14B & MoE 30B-A3B & change \\
+& dense & MoE & change \\
 \midrule
+Measured GPU+CPU package (kJ)& 294.5 & \textbf{179.8} & $-39.0\,\%$ \\
 Session GPU energy (kJ)      & 156.4 & \textbf{90.7} & $-42.0\,\%$ \\
-Proposer energy (kJ)         &  94.3 & \textbf{35.7} & $-62.2\,\%$ \\
-Training energy (kJ)         &  62.1 & 55.0 & $-11.4\,\%$ \\
-Wasted energy (kJ)           & 126.1 & 67.0 & $-46.9\,\%$ \\
-Test accuracy                & 0.7939 & \textbf{0.8224} & $+2.85$\,pp \\
+GPU~1 board energy (kJ)      &  94.3 & \textbf{35.7} & $-62.2\,\%$ \\
+GPU~0 board energy (kJ)      &  62.1 & 55.0 & $-11.4\,\%$ \\
+Non-retained iteration GPU energy (kJ) & 126.1 & 67.0 & $-46.9\,\%$ \\
+Test accuracy                & 0.7939 & 0.8224 & $+2.85$\,pp \\
 Kept mutations (total)       & 12 & \textbf{17} & $+42\,\%$ \\
 Sessions with zero kept      & 5/12 & 1/12 &, \\
 Proposal latency (s)         & 61.8 & 31.9 & $-48.4\,\%$ \\
@@ -31,20 +38,21 @@ Session wall-clock (s)       & 1515 & 1023 & $-32.5\,\%$ \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig2_decomposition.png}
-\caption{Session energy decomposed by physical device, per configuration cell.
-Training energy (blue, GPU~0) is common to both arms and varies only with loop
-budget; the architectural difference is concentrated almost entirely in proposer
-energy (orange, GPU~1). This decomposition is a direct measurement, not an
-estimate: the two components are read from separate devices.}
+\caption{Gross session GPU energy decomposed by physical device, per cell.
+GPU~0 (blue) hosts training and GPU~1 (orange) hosts proposing. These are direct
+board measurements, but not pure component energies: both boards remain powered
+throughout the session and include idle and residency draw.}
+\Description{Stacked bars for the eight Phase-1 cells show GPU 0 and GPU 1 board energy. Dense sessions use more total energy, with most of the arm difference on proposer GPU 1.}
 \label{fig:decomposition}
 \end{figure}
 
-Table~\ref{tab:headline} states the principal result: \textbf{the sparse proposer
-is cheaper on every energy measure and more accurate}.
-Figure~\ref{fig:decomposition} shows where the difference lives: the training
-component is essentially identical across arms, as it must be, and the entire
-architectural effect sits in the proposer component. This is not a trade-off
-along a frontier; the MoE dominates. The mechanism is multiplicative: activating
+Table~\ref{tab:headline} states the principal result: the sparse proposer is
+cheaper at both measured scopes and has a higher observed mean accuracy.
+Figure~\ref{fig:decomposition} shows that most of the energy difference is on
+GPU~1, the proposer device; GPU~0 also differs by 11.4\,\% because its whole-session
+counter includes idle time while proposals are generated. On sample means the MoE
+dominates, but the accuracy model below does not establish superiority. The energy
+mechanism is multiplicative: activating
 $\sim$3B rather than 14.8B parameters draws $\sim$36\,\% less instantaneous power
 (72.5\,W vs.\ 112.8\,W measured during proposal phases) \emph{and} completes a
 proposal in half the time.
@@ -53,20 +61,21 @@ proposal in half the time.
 \centering
 \includegraphics[width=\textwidth]{figures/fig6_diagnostics.png}
 \caption{Measurement diagnostics. (a) Session energy against wall-clock; the
-fitted slope is mean session power. (b) Session-level distributions per arm.
+fitted slope is the energy--duration regression slope (W). (b) Session-level distributions per arm.
 (c) Session energy against position in the randomised run table.}
+\Description{Three diagnostic plots show session energy increasing with duration, the arm-level energy distributions, and no visible energy drift over randomized run order.}
 \label{fig:diagnostics}
 \end{figure*}
 
 \textbf{Is this simply a speed result?} Figure~\ref{fig:diagnostics}(a) separates
-the two components. Mean \emph{session} power differs by only 16\,\% between the
-arms (103\,W dense, 95\,W MoE) because both share an identically loaded training
-GPU; session duration differs by 48\,\%. The energy ratio decomposes as
-$1.48 \times 1.16 = 1.72$, i.e.\ roughly two thirds of the session-level
-advantage is shorter sessions and one third is lower power. The large power
-difference is real but confined to the component the architecture governs: during
+duration from power. Dividing each arm's mean energy by its mean duration gives
+103.2\,W for dense and 88.7\,W for MoE, a 16.4\,\% difference; mean duration
+differs by 48\,\%. The dense/MoE energy ratio therefore decomposes as
+$1.48 \times 1.16 = 1.72$. The fitted session-level slopes (103.2 and 95.3\,W)
+answer a different regression question and are not used in this ratio identity.
+The larger phase-specific power difference is concentrated where expected: during
 proposal phases the devices draw 112.8\,W (dense) against 72.5\,W (MoE), and
-$E_{\mathit{prop}}$ per proposal differs by $2.7\times$. Reporting only session
+$E_{\mathit{prop,phase}}$ per proposal differs by $2.7\times$. Reporting only session
 energy would understate the architectural effect; reporting only proposer power
 would overstate it.
 
@@ -100,38 +109,39 @@ Patience $\times$ loop budget  & 1.39 & 0.256 & 0.080 \\
 
 \begin{table}[htbp]
 \centering
-\caption{Pre-registered contrasts. Mann--Whitney $U$, Cliff's $\delta$, Holm
-correction over five tests.}
+\caption{Corrected Phase-1 contrasts. Energy per kept is a ratio of pooled sums,
+with sessions resampled within factorial cells; zero-kept sessions remain in the
+numerator. Accuracy is a session-level factorial OLS contrast.}
 \label{tab:contrasts}
-\begin{tabular}{llrlr}
+\small
+\begin{tabular}{lll}
 \toprule
-Hypothesis & Outcome & Change & Cliff's $\delta$ & $p_{\mathit{holm}}$ \\
+Contrast and outcome & Estimate & 95\,\% interval / test \\
 \midrule
-H$^{\mathit{prop}}$ & $E_{\mathit{total}}$   & $-42.0\,\%$ & 0.556 (large)      & 0.090 \\
-H$^{\mathit{prop}}$ & test acc.              & $+3.6\,\%$  & $-0.444$ (medium)  & 0.207 \\
-H$^{\mathit{bud}}$  & $E_{\mathit{per\,kept}}$ & $+107.6\,\%$ & $-0.802$ (large) & \textbf{0.024} \\
-H$^{\mathit{pat}}$  & $E_{\mathit{wasted}}$  & $-9.8\,\%$  & 0.042 (negligible) & 1.000 \\
-H$^{\mathit{pat}}$  & $E_{\mathit{per\,kept}}$ & $-9.4\,\%$ & 0.117 (negligible) & 1.000 \\
+MoE vs. dense, $E_{\mathit{GPU}}$ & $-42.0\,\%$ & ART $p=6.96\!\times\!10^{-6}$ \\
+MoE vs. dense, test acc. & $+2.85$\,pp & $[-0.04,5.74]$, $p=0.053$ \\
+Budget 20 vs. 10, GPU $E/$keep & $+146.2\,\%$ & ratio CI $[1.29,4.46]$ \\
+Patience 3 vs. 1, GPU $E/$keep & $+24.3\,\%$ & ratio CI $[0.68,2.76]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Proposer architecture and loop budget both carry large effects on session energy
-($\eta^2_p = 0.73$ and $0.76$); patience does not, and no interaction is
-detectable. Consistent with the conclusion-validity position registered in
-Section~\ref{sec:threats}, \textbf{effect sizes are the primary output}. The
-architecture effect is unambiguous under ART-ANOVA ($p = 7\times10^{-6}$) while
-the corresponding pairwise contrast does not survive Holm correction
-($p_{\mathit{holm}} = 0.090$). These are not in conflict: the ANOVA models loop
-budget, itself a large energy effect, whereas the pairwise test pools across it
-and inherits that variance. With $n=12$ per arm the defensible claim is a large
-and consistent effect that the corrected pairwise test is underpowered to certify
-at $\alpha = 0.05$.
+Proposer architecture and loop budget both carry large effects on GPU session
+energy ($\eta^2_p = 0.73$ and $0.76$); patience does not, and no two-way energy
+interaction is detected. A matching session-level factorial model for test
+accuracy estimates MoE minus dense at $+2.85$\,pp (95\,\% CI
+$[-0.04,5.74]$, $p=0.053$; HC3 sensitivity $p=0.098$). Patience and budget
+accuracy contrasts are $-1.94$\,pp ($p=0.175$) and $+0.20$\,pp ($p=0.886$).
+No two-way accuracy interaction is detected (proposer $\times$ patience
+$p=0.181$; proposer $\times$ budget $p=0.542$; patience $\times$ budget
+$p=0.539$). Thus the energy advantage is established in this design, whereas accuracy
+superiority is not; nonsignificance is not an equivalence test.
 
-Doubling the loop budget from 10 to 20 raised energy per kept mutation by
-$107.6\,\%$ ($\delta = -0.80$, the only Holm-significant contrast): twice the
-experiments cost twice the energy per useful result, because the cheap
-improvements are found early in a session.
+The original per-session energy-per-kept test silently excluded zero-kept
+sessions. Recomputing the registered pooled estimand gives 61.8 vs.\ 152.1\,kJ
+of GPU energy per keep for budgets 10 and 20: an increase of 146.2\,\% (stratified
+bootstrap ratio CI $[1.29,4.46]$). Patience changes the pooled value from 92.9
+to 115.5\,kJ ($+24.3\,\%$), but its interval includes both directions.
 
 \begin{figure}[htbp]
 \centering
@@ -141,6 +151,7 @@ interquartile band, $n=12$ sessions per arm. Curves are monotone by
 construction: a proposal that fails to improve is reverted. The MoE reaches
 $+3$\,pp by its first iteration and plateaus near $+7.4$\,pp by iteration~7; the
 dense arm's median is flat until iteration~9 and plateaus lower.}
+\Description{Median best-so-far validation improvement by iteration rises earlier and higher for the MoE arm than for the dense arm, with shaded interquartile bands.}
 \label{fig:trajectories}
 \end{figure}
 
@@ -155,24 +166,28 @@ rejected; that energy is not recovered.
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig4_waste.png}
-\caption{Per-session energy attributed to each iteration outcome. The
-\emph{keep} band is small in every cell: 64\,\% of Phase-1 session energy went to
-mutations that were reverted or that failed to run. This is a property of the
-protocol rather than a defect, a search must evaluate candidates to
-reject them, and it is precisely what makes proposer efficiency worth
-measuring.}
+\caption{GPU energy attributed to iteration outcomes. These bands cover aligned
+iteration windows only; 13.6\,\% of session GPU energy lies in startup,
+evaluation, cooldown, or other unaligned intervals and is not shown as an
+iteration outcome.}
+\Description{Stacked bars split aligned per-cell GPU energy among kept, reverted, rejected, errored, and rollback-discarded iteration outcomes; reverted energy dominates most cells.}
 \label{fig:waste}
 \end{figure}
 
-Figure~\ref{fig:waste} attributes that energy by outcome. Across Phase~1,
-\textbf{64\,\% of session energy produced no retained mutation}, and the dense
-arm wasted 126.1\,kJ per session against the MoE's 67.0\,kJ.
+Across Phase~1, total GPU energy is 2,965.1\,kJ. Of this, 2,317.0\,kJ
+(78.1\,\%) is directly attributable to reverted, rejected, errored, or
+rollback-discarded iterations; 243.9\,kJ (8.2\,\%) belongs to retained
+iterations; and 404.3\,kJ (13.6\,\%) is the unaligned remainder. Among aligned
+iteration energy alone, the non-retained share is 90.5\,\%. The three-bin
+decomposition is reported rather than allocating the remainder to ``waste'' by
+assumption. Mean non-retained iteration energy is 126.1\,kJ per dense session and
+67.0\,kJ per MoE session.
 
 \subsection{RQ2: the energy/accuracy Pareto frontier}
 
 \begin{table}[htbp]
 \centering
-\caption{Cell means and the non-dominated frontier.}
+\caption{Cell means and the sample non-dominated frontier (GPU-board energy).}
 \label{tab:pareto}
 \begin{tabular}{llrrrc}
 \toprule
@@ -200,33 +215,33 @@ baseline cell (dense, greedy, budget~10) is outlined. The within-cell spread is
 substantial relative to the between-cell differences in accuracy, which is why
 frontier membership is interpreted against the measured noise floor rather than
 from means alone.}
+\Description{Scatter plot of GPU-board energy against CIFAR-10 test accuracy. Cell means with error bars and individual sessions show two MoE cells and one dense cell on the sample Pareto frontier, with substantial accuracy overlap.}
 \label{fig:pareto}
 \end{figure}
 
-Two of the three non-dominated cells are MoE cells, and the cheapest frontier
+Two of the three sample non-dominated cells are MoE cells, and the cheapest frontier
 point (MoE, greedy, budget 10) attains 0.8209 test accuracy for 56.5\,kJ,
 \textbf{47.6\,\% less energy than the designated baseline cell} (dense, greedy,
-budget~10) at 0.05\,pp lower mean accuracy, i.e.\ at no measurable accuracy cost., 
-Figure~\ref{fig:pareto} also makes the dispersion visible: within-cell spread is
+budget~10) at 0.05\,pp lower mean accuracy. Figure~\ref{fig:pareto} also makes the dispersion visible: within-cell spread is
 large relative to between-cell accuracy differences, which is the reason the
 frontier is read against the noise floor below.
 
-\textbf{The dense frontier point ($\dagger$) is an artifact of measurement noise
-and should not be read as a genuine trade-off.} It is non-dominated only because
-its mean accuracy exceeds the cheapest MoE cell by $0.053$\,pp, 23 times
-smaller than the measured keep threshold ($\epsilon = 1.23$\,pp,
-Section~\ref{sec:execution}) and 60 times smaller than the within-cell standard
-deviation ($3.1$\,pp), while consuming $1.91\times$ the energy. A frontier
-computed from cell means without reference to the noise floor will report
-spurious non-dominated points; we therefore report each frontier margin against
-$\epsilon$.
+\textbf{Frontier membership is descriptive, especially on the accuracy axis.}
+The dense frontier cell exceeds the cheapest MoE cell by only 0.053\,pp while
+using $1.91\times$ the GPU energy. The high-budget MoE frontier cell exceeds the
+cheapest MoE cell by 1.02\,pp while using $1.98\times$ the energy. Both accuracy
+margins are smaller than the 1.23\,pp within-session validation keep threshold,
+but that threshold is not a valid equivalence margin for independent test-set
+cell means. The figure therefore supports clear energy comparisons and a
+provisional sample frontier, not categorical accuracy indifference.
 
 \subsection{Reliability of improvement}
 
 \begin{table}[htbp]
 \centering
-\caption{Best accuracy \emph{observed} within a session, relative to that
-session's own baseline (retained regardless of the keep decision).}
+\caption{Best candidate validation accuracy observed within a session, relative
+to that session's starting validation baseline. This is candidate quality, not
+the accuracy of the final retained recipe.}
 \label{tab:reliability}
 \begin{tabular}{lrr}
 \toprule
@@ -243,12 +258,14 @@ sessions collapse catastrophically, individual proposals reached $0.0924$
 validation accuracy, chance level for ten classes, and pull the mean below
 baseline. The MoE's mean and median nearly coincide.
 
-\textbf{The architectural difference is therefore one of reliability as much as
-of quality.} For a self-hoster this is the more consequential property: a session
-that ends below its own baseline has spent its entire energy budget for a
-negative result. We report best-observed accuracy alongside best-kept accuracy
-because the latter collapses to the baseline whenever no proposal clears
-$\epsilon$, and carries no signal in those sessions.
+The candidate distribution is less stable for the dense arm, but the loop's
+keep/revert semantics prevent a failed candidate from replacing the retained
+recipe. Five dense sessions and one MoE session retained no improvement (Fisher
+exact $p=0.155$); those sessions finish on their starting recipe, not below it.
+Separately, the best evaluated candidate remained below the starting validation
+baseline in 3 of 12 dense sessions and 0 of 12 MoE sessions. We therefore describe
+``no retained improvement'' and candidate quality explicitly rather than calling
+either count a degraded final outcome.
 
 \subsection{Energy per kept mutation: reporting convention}
 
@@ -258,25 +275,23 @@ $p=0.155$). The choice of convention materially changes the reported effect:
 
 \begin{table}[htbp]
 \centering
-\caption{Two conventions for energy per kept mutation.}
+\caption{Energy per retained mutation. The pooled estimand is primary; the
+measured-components row adds session-aligned CPU-package energy.}
 \label{tab:perkept}
 \small
 \begin{tabular}{lrrr}
 \toprule
-Convention & dense & MoE & ratio \\
+Measurement scope & dense & MoE & dense/MoE \\
 \midrule
-Mean of ratios$^\dagger$ & 112.1\,kJ & 74.4\,kJ & $1.51\times$ \\
-Pooled $\sum E / \sum \mathit{kept}$ & \textbf{156.4}\,kJ & \textbf{64.0}\,kJ & $\mathbf{2.44\times}$ \\
+GPU boards & \textbf{156.4}\,kJ & \textbf{64.0}\,kJ & $\mathbf{2.44\times}$ \\
+GPU + CPU package & 294.5\,kJ & 126.9\,kJ & $2.32\times$ \\
 \bottomrule
 \end{tabular}
-\par\smallskip
-{\footnotesize $^\dagger$ mean of the per-session ratios, which necessarily
-excludes sessions that kept nothing.}
 \end{table}
 
-The first convention understates the effect by 38\,\% precisely because it
-discards the sessions in which the dense arm performed worst. We report the
-pooled figure and state the zero-kept counts alongside it.
+For comparison, averaging only defined per-session ratios would produce 112.1
+and 74.4\,kJ and would discard every zero-kept session. The pooled value retains
+their energy and is the estimand used throughout.
 
 \subsection{Agent behaviour}
 
@@ -316,9 +331,10 @@ exactly 0 reasoning tokens and every \texttt{on} session between 23\,909 and
 \centering
 \caption{Stage 2a cells ($n=3$ each).}
 \label{tab:reasoning}
-\begin{tabular}{llrrrrr}
+\scriptsize
+\begin{tabular}{@{}llrrrrr@{}}
 \toprule
-Arm & Think & $E$ (kJ) & $E_{\mathit{prop}}$ & Test acc. & Kept & Err. \\
+Arm & Think & $E_{\mathit{GPU}}$ (kJ) & GPU~1 (kJ) & Test acc. & Kept & Err. \\
 \midrule
 dense & off & 108.1 & 59.2  & 0.7572 & 0.33 & 1.0 \\
 dense & on  & 172.6 & 133.3 & 0.8490 & 1.33 & 4.3 \\
@@ -331,67 +347,79 @@ MoE   & on  & 92.0  & 59.0  & 0.8378 & 1.00 & 4.3 \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\columnwidth]{figures/fig3_reasoning_decomposition.png}
-\caption{Stage 2a: session energy by device. Reasoning inflates the proposer
-component (orange) while leaving training (blue) unchanged, as it must. The two
-configurations that matter are the extremes: \emph{MoE without reasoning} at
-52\,kJ and \emph{dense with reasoning} at 173\,kJ, which reach statistically
-indistinguishable accuracy.}
+\caption{Stage 2a gross session GPU energy by device. Reasoning increases GPU~1
+(orange) energy in both arms. GPU~0 (blue) is a whole-session board integral and
+therefore need not be identical across arms or reasoning levels.}
+\Description{Four stacked bars show Stage 2a GPU 0 and GPU 1 energy for dense and MoE proposers with reasoning off and on; reasoning raises proposer-device and total GPU energy in both arms.}
 \label{fig:reasoning}
 \end{figure}
 
-\textbf{Reasoning and sparsity are substitutes, not complements.} Enabling
-reasoning raises dense test accuracy substantially but leaves the MoE unchanged:
-the MoE difference of $0.91$\,pp lies below the measured keep threshold
-($\epsilon = 1.23$\,pp) and is not interpretable as an effect. Pooling the two
-independent executions of the dense-without-reasoning configuration
-(Section~\ref{sec:results:control}, $n=6$) puts the dense gain at $+6.0$\,pp.
+On log proposer-device energy, reasoning multiplies energy by $2.24\times$ for
+dense (HC3 95\,\% CI $[1.80,2.78]$) and $2.67\times$ for MoE
+($[2.17,3.28]$); the ratio-of-ratios is 1.19 ($[0.88,1.61]$, $p=0.214$).
+For gross session GPU energy the multipliers are 1.59 ($[1.25,2.03]$) and 1.76
+($[1.35,2.29]$), with interaction ratio 1.10 ($[0.77,1.58]$). Adding CPU-package
+energy gives 1.54 ($[1.18,2.02]$) and 1.80 ($[1.42,2.29]$), with interaction
+1.17 ($[0.82,1.67]$). Reasoning therefore raises energy in both arms; there is
+no clear arm-specific multiplicative energy interaction.
+
+\textbf{The exploratory accuracy interaction is consistent with substitution.} In a
+session-level $2\times2$ model, enabling reasoning changes dense test accuracy by
+$+9.18$\,pp (HC3 95\,\% CI $[5.74,12.62]$) and MoE accuracy by $-0.91$\,pp
+($[-6.42,4.60]$). The architecture-by-reasoning difference-in-differences is
+$-10.09$\,pp ($[-16.58,-3.59]$). With three sessions per cell this is an
+exploratory interaction, not a general claim that reasoning and sparsity are
+substitutes.
 
 \textbf{The practitioner reading inverts the intuitive one.} The cheapest
 configuration measured, MoE without reasoning, attains 0.8469 test accuracy for
-52.1\,kJ, against dense with reasoning at 0.8490 for 172.6\,kJ: \textbf{3.3
-times less energy for an accuracy difference of 0.21\,pp}, six times smaller than
-the noise floor. On a fixed energy budget, sparsity is the efficient purchase and
-reasoning tokens are not; reasoning is an expensive route to a point the sparse
-model reaches without it.
+52.1\,kJ, against dense with reasoning at 0.8490 for 172.6\,kJ: the MoE uses
+\textbf{69.8\,\% less GPU energy} (dense uses $3.31\times$ as much) for an
+observed difference of 0.21\,pp. The direct accuracy
+contrast is imprecise (95\,\% CI $[-3.97,4.38]$\,pp, $p=0.912$); it does not
+establish equivalence. The energy separation is nevertheless large.
 
 We registered a quantitative prediction before running, derived from the
 feasibility probe and the measured proposal-phase power draws: that the MoE could
 reason for less energy than the dense model spends not reasoning (6.17 vs.\
-6.73\,kJ per proposal). The direction held and the absolute values fell within
-5\,\% of prediction (5.90 vs.\ 5.92\,kJ), but the margin collapsed from 0.56 to
-0.02\,kJ. The defensible claim is equality, not inequality.
+6.73\,kJ per proposal). The direction held, but the observed values were 5.90
+and 5.92\,kJ (4.4\,\% and 12.0\,\% below prediction), so the margin collapsed
+from 0.56 to 0.02\,kJ. These point estimates are nearly equal; no equivalence margin or test
+was pre-specified, so equality is not claimed.
 
-Finally, reasoning did \emph{not} reduce coding errors: failures per session rose
+Finally, observed mean coding failures rose
 in both arms (dense 1.0~$\rightarrow$~4.3, MoE 3.3~$\rightarrow$~4.3). We had
 expected a reasoning pass to catch errors such as retaining an SGD learning rate
-when switching to AdamW. It did not; longer deliberation produced more ambitious
-proposals rather than more correct ones.
+when switching to AdamW. At $n=3$ per cell this pattern is descriptive, but it
+provides no evidence of an error reduction.
 
 \subsection{A reproducibility control}\label{sec:results:control}
 
 Phase~1's \emph{dense, greedy, budget-10} cell and Stage~2a's \emph{dense,
-reasoning-off} cell are the same configuration, executed in independent
-experiments days apart on the same hardware. They therefore function as an
-unplanned replication.
+reasoning-off} cell are functionally equivalent controls executed days apart on
+the same hardware. Their proposer token caps differ (8,192 vs.\ 12,288), but the
+cap was non-binding in these runs; this is a near-replication rather than a
+literally identical configuration.
 
 \begin{table}[htbp]
 \centering
-\caption{The same configuration, executed twice independently.}
+\caption{Functionally equivalent dense/off controls executed independently.}
 \label{tab:control}
 \begin{tabular}{lrrl}
 \toprule
 & Phase 1 & Stage 2a & Agreement \\
 \midrule
-Session energy & 107.9\,kJ & 108.1\,kJ & \textbf{0.20\,\%} \\
+GPU-board energy & 107.9\,kJ & 108.1\,kJ & \textbf{0.20\,\%} \\
+GPU + CPU package & 203.1\,kJ & 207.7\,kJ & 2.26\,\% \\
 Test accuracy  & 0.8214 & 0.7572 & 6.42\,pp apart \\
 Kept mutations & 1.67 & 0.33 &, \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Energy reproduces to a fifth of a percent; accuracy does not reproduce at
-$n=3$.} The measurement apparatus is thus not the source of the accuracy
-variance; the agent is. This is the clearest available justification for the
+\textbf{GPU-board energy reproduces to a fifth of a percent; accuracy does not
+reproduce at $n=3$.} Energy was stable across these samples while accuracy was
+not; this control does not isolate the source of the accuracy variation. It is nevertheless the clearest available justification for the
 conclusion-validity position registered in Section~\ref{sec:threats}, that effect
 sizes rather than significance tests are the primary output, and it is a concrete
 warning against reading any individual three-session cell as a point estimate of
@@ -413,7 +441,7 @@ repetitions, MoE arm, against the current prompt.
 \small
 \begin{tabular}{rrrrrr}
 \toprule
-$T$ & $E$ (kJ) & Test acc. & Kept & Duplicate pairs & Distinct \\
+$T$ & $E_{\mathit{GPU}}$ (kJ) & Test acc. & Kept & Duplicate pairs & Distinct \\
 \midrule
 0.0 & 65.8 & 0.8289 & 1.67 & 23 & 0.77 \\
 0.4 & 65.6 & 0.8222 & 1.67 & 5  & 0.90 \\
@@ -423,18 +451,20 @@ $T$ & $E$ (kJ) & Test acc. & Kept & Duplicate pairs & Distinct \\
 \end{tabular}
 \end{table}
 
-\textbf{Temperature changes proposal duplication but not outcomes.} Byte-identical
+\textbf{Temperature changes proposal duplication; outcome evidence is inconclusive.} Byte-identical
 proposal pairs fall from 23 at $T=0$ to between 2 and 9 above it, and the fraction
 of distinct proposals within a session rises from 0.77 to 0.97. Retained
 mutations (1.33--2.33) and best observed accuracy (0.8235--0.8361) show no
-corresponding pattern. One $T=0$ session produced only 4 distinct proposals out of
+corresponding descriptive pattern. One $T=0$ session produced only 4 distinct proposals out of
 10 and still retained 2 mutations, reaching 0.8486. Duplicate proposals waste
-iterations; on this evidence they do not prevent a session from succeeding.
+iterations; this example shows that duplication does not necessarily prevent a
+session from retaining an improvement.
 
-\textbf{The original attribution was wrong.} At $T=0$ against the current prompt
+\textbf{The original attribution is not supported as a sufficient mechanism.} At $T=0$ against the current prompt
 the MoE retains 1.67 mutations per session, which is the normal rate for that
-arm. Temperature 0 therefore does not produce sessions that retain nothing, and
-cannot by itself explain the restarted Phase~1.
+arm. Thus $T=0$ is not sufficient to force zero retention under the current
+prompt. Because the restart changed both prompt content and temperature, these
+data cannot exclude a temperature-by-prompt interaction or isolate either change.
 
 Two other findings account for what we saw. First, the three sessions that
 prompted the restart were, by the shuffled run order, all dense
@@ -450,9 +480,56 @@ still specify more than 60 epochs for a budget that delivers roughly 43, whereas
 the MoE emits none out of 82 in Stage 2b. The dense proposer continues to design
 for a training run it is not given, after being told what it is given.
 
-\textbf{Limits of this correction.} Stage 2b varies temperature on the MoE only,
-so we have not tested $T=0$ on the dense arm against the corrected prompt. What
-we can state is that the mechanism we proposed does not operate on the arm we
-tested, that temperature has no detectable effect on any outcome over $[0, 1]$,
-and that the observation which triggered the restart is adequately explained
-without it.
+\subsection{Stage 2c: the same check on the dense arm}\label{sec:results:dense-temp}
+
+Stage 2b varies temperature on the MoE, whereas the sessions that prompted the
+restart were dense. Stage 2c repeats the check on that arm at the two levels that
+matter, $T \in \{0, 0.7\}$, with three repetitions. It is a mechanism check
+rather than a second sweep: with the dense arm retaining nothing in 42\,\% of
+sessions, three repetitions cannot resolve an effect on retention, whereas the
+duplication effect measured on the MoE (23 pairs against 2) is large enough to
+detect.
+
+\begin{table}[htbp]
+\centering
+\caption{Stage 2c: dense arm, mechanism check ($n=3$ per level).}
+\label{tab:dense-temp}
+\small
+\begin{tabular}{rrrrrr}
+\toprule
+$T$ & Dup.\ pairs & Distinct & Kept & Errors & Best vs.\ base \\
+\midrule
+0.0 & \textbf{9} & 0.77 & 1.00 & 0.0 & $-2.81$\,pp \\
+0.7 & \textbf{0} & 1.00 & 0.33 & 2.3 & $+0.46$\,pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Duplication responds to temperature on both arms.} The dense arm shows
+9 byte-identical proposal pairs at $T=0$ and none at $T=0.7$, with the distinct
+fraction rising from 0.77 to 1.00: the same direction and comparable magnitude to
+the MoE. Sampling temperature does govern how often the proposer repeats itself,
+on both subjects.
+
+\textbf{No outcome effect can be estimated from this check.} Retention was 1.00 at $T=0$ against
+0.33 at $T=0.7$, if anything the opposite of what the retracted claim predicts,
+and best-observed accuracy differs by 3.3\,pp in favour of $T=0.7$ with both
+levels containing sessions whose best evaluated candidate remained below their
+starting validation baseline. At $n=3$ on an
+arm this variable, none of these differences is interpretable. What the check
+shows only that $T=0$ can produce retained improvements under the current prompt;
+it does not establish a null outcome effect.
+
+Two observations from these six sessions bear on the dense arm rather than on
+temperature. In three of the six, even the best evaluated candidate remained
+\emph{below} the starting validation baseline, and the
+two worst ($-10.3$\,pp and $-6.9$\,pp) recorded no errors at all: every proposal
+ran to completion and every one was worse than the recipe it replaced. The dense
+arm's unreliability is a proposal-quality problem rather than a crash problem.
+The crashes that did occur clustered at the higher temperature (7 across the
+$T=0.7$ sessions, none at $T=0$), consistent with Stage 2a, where more
+adventurous proposals ran less often.
+
+\textbf{Limits.} Both temperature studies use three repetitions per level, which
+suffices for the duplication effect and not for anything else. We report
+retention and accuracy for completeness and draw no inference from them.

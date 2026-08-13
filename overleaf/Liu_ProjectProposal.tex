@@ -1,5 +1,5 @@
 \pdfminorversion=7 % draw.io exports PDF 1.7; allow inclusion
-\documentclass[sigconf]{acmart}
+\documentclass[sigconf,nonacm]{acmart}
 
 % acmart already defines \Bbbk; amssymb redefining it is an error, not a warning.
 \let\Bbbk\relax
@@ -20,6 +20,9 @@
 \usepackage{enumitem}
 \usepackage{array}
 
+% Keep the expanded, source-complete bibliography on the report's final page.
+\renewcommand{\bibfont}{\scriptsize}
+
 \renewcommand{\ttdefault}{cmr}
 
 \newcommand{\todo}[1]{\textcolor{blue}{\ding{46}~#1}}
@@ -28,18 +31,16 @@
 \newcommand{\etc}{etc.\xspace}
 \newcommand{\etal}{\emph{et~al.}\xspace}
 
-\copyrightyear{2026}
 \acmYear{2026}
-\setcopyright{acmcopyright}
+\settopmatter{printacmref=false}
 \acmConference[S2 Project '26]{Research Project — Software and Sustainability (S2) Group}{June--September, 2026}{Vrije Universiteit Amsterdam, The Netherlands}
-\acmBooktitle{S2 Research Project '26, VU Amsterdam}
 
 \begin{document}
 
 \title[Self-Hosted LLMs under an Agentic AutoML Workload]{
 	Evaluating Self-Hosted LLM Architectures under an Agentic AutoML Workload: An Energy/Accuracy Pareto Study of \texttt{autoresearch}
 }
-\subtitle{Project Proposal — 6 ECTS Research Project (draft, results pending execution)}
+\subtitle{Research Project Report --- 6 ECTS}
 
 \author{Houcen Liu}
 \affiliation{%
@@ -56,29 +57,35 @@ Self-hosting large language models promises privacy, cost control, and independe
 We evaluate whether a simple self-hostable model architecture, a sparse Mixture-of-Experts (MoE) model compared against a dense model of the same family, can drive an agentic AutoML loop with good performance and energy efficiency, and we identify the intra-model and agent-loop configurations that improve on the baseline energy/accuracy profile. Karpathy's \texttt{autoresearch} is the case-study workload.
 
 \noindent \textit{Method}.
-A controlled experiment following the Green Lab methodology, staged: Stage~1 studies the architecture at a fixed intra-model configuration via a $2 \times 2 \times 2$ full-factorial design (proposer architecture $\times$ patience $\times$ loop budget) with 3 repetitions (24 sessions of agent-driven CIFAR-10 CNN training, $\approx$10 GPU-hours as executed), orchestrated by \texttt{experiment-runner} with \texttt{EnergiBridge} energy profiling; Stage~2 varies intra-model configurations on the better architecture for further optimization. Training and proposer inference run on physically separate GPUs for clean per-component energy attribution. A CPU-only proposer-serving phase assesses whether performance slowdowns remain acceptable for self-hosters deploying without a GPU.
+A controlled experiment following the Green Lab methodology combines a $2 \times 2 \times 2$ full-factorial Phase~1 design (proposer architecture $\times$ patience $\times$ loop budget) with 3 repetitions (24 sessions, 360 iterations) and three exploratory follow-ups on reasoning and sampling temperature (30 sessions, 300 iterations). Training and proposer inference run on separate RTX 4000 Ada GPUs. NVML provides gross session-level GPU-board measurements, while timestamps attribute iteration windows; raw EnergiBridge traces permit a post-hoc sensitivity analysis that adds AMD CPU-package energy. The planned CPU-served proposer phase is not part of the present results while its scope awaits supervisor feedback.
 
 \noindent \textit{Results}.
-The sparse proposer dominates: it consumed 42\,\% less energy per session
-(90.7 vs.\ 156.4\,kJ; ART-ANOVA $p = 7\times10^{-6}$, partial $\eta^2 = 0.73$)
-\emph{and} reached higher test accuracy (0.8224 vs.\ 0.7939), retaining 17 improvements
-against 12. The mechanism is multiplicative: $\sim$3B active parameters draw
-36\,\% less instantaneous power and complete a proposal in half the time, for
-2.4$\times$ less energy per retained improvement. Reliability separates the arms
-more sharply than central tendency: the dense proposer ended 5 of 12 sessions
-below its own starting point, against 1 of 12 for the MoE. Doubling the iteration
-budget raised energy per retained improvement by 108\,\% (the only contrast
-surviving Holm correction); patience had no detectable effect.
+The sparse proposer used 42.0\,\% less GPU-board energy per session
+(90.7 vs.\ 156.4\,kJ; ART-ANOVA $p = 7\times10^{-6}$, partial $\eta^2 = 0.73$).
+Adding the recoverable CPU-package counter gives the same conclusion at a broader
+measurement scope (179.8 vs.\ 294.5\,kJ, $-39.0\,\%$), but is not a full-system
+estimate because DRAM and other host components were not measured. Mean test
+accuracy was 2.85 percentage points higher for the MoE (0.8224 vs.\ 0.7939), but
+the 95\,\% interval includes zero ($p=0.053$; HC3 sensitivity $p=0.098$), so
+accuracy superiority is not established. The MoE retained 17 improvements against
+12 and had one no-progress session against five. Correctly pooling all sessions,
+including zero-kept sessions, gives 64.0 vs.\ 156.4\,kJ of GPU energy per retained
+improvement ($-59.1\,\%$); doubling the loop budget raises that quantity by
+146.2\,\%. Of total Phase-1 GPU energy, 78.1\,\% is attributable to non-retained
+iterations, 8.2\,\% to retained iterations, and 13.6\,\% remains outside aligned
+iteration windows.
 
 \noindent \textit{Conclusions}.
-On a single 20\,GB card, sparsity buys energy efficiency on an agentic workload
-without costing accuracy; the trade-off the architecture is usually assumed to
-impose did not appear. Two methodological results generalize beyond the subjects:
-sampling temperature changes how often a proposer repeats itself (23 duplicate
-proposal pairs at $T=0$ against 2--9 above it) without changing what a session
-achieves, and a mid-experiment diagnosis we made on that basis proved wrong when
-tested; and a keep threshold must be derived from a measured noise
-floor, since the value assumed a priori sat four times below it.
+On this workload and hardware, sparsity provides a large energy
+advantage and a higher observed mean accuracy, but evidence about the accuracy
+contrast is inconclusive; neither superiority nor equivalence is established. Reasoning increases energy in both
+arms and shows an exploratory architecture-by-reasoning accuracy interaction.
+Sampling temperature clearly changes exact proposal duplication, but the outcome
+experiments are too small, and confounded with a prompt change at restart, to
+establish that temperature does not affect retention or accuracy. A keep threshold
+must be derived from a measured noise floor. A 100-iteration MoE session and
+retained-checkpoint replay are prepared as the next extension but are not reported
+as completed evidence.
 \end{abstract}
 
 \maketitle

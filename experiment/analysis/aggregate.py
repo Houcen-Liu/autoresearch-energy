@@ -102,8 +102,10 @@ def collect(experiments_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd
         if e_path.exists():
             e = json.loads(e_path.read_text())
             row.update({k: e.get(k) for k in
-                        ("E_train_J", "E_prop_J", "E_gpu_total_J", "E_wasted_J",
-                         "E_per_kept_J", "gap_fraction", "alignment_ok", "wallclock_s")})
+                        ("E_train_J", "E_prop_J", "E_gpu_total_J", "E_cpu_pkg_J",
+                         "E_dram_J", "E_measured_total_J", "E_wasted_J",
+                         "E_per_kept_J", "gap_fraction", "alignment_ok",
+                         "wallclock_s")})
             if e.get("alignment_ok") is False:
                 quarantine.append({"run": run_dir.name, "reason": "energy alignment failed",
                                    "gap_fraction": e.get("gap_fraction")})

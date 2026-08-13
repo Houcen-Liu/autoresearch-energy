@@ -8,24 +8,25 @@ first person here because the judgements are mine.
 
 Three contributions appear to be new, in descending order of confidence.
 
-\textbf{The first energy measurement of an agentic AutoML loop.} Published
+\textbf{An energy measurement of an agentic AutoML loop for which I found no
+direct precedent.} Published
 inference-energy work measures single prompts \cite{luccioni2024power};
 MLAgentBench \cite{huang2024mlagentbench} measures agent success rates and API
-cost but not energy. I could find no prior study that measures the energy of a
-closed propose--evaluate--keep loop, where proposal quality determines how much
-downstream training compute is spent. The specific finding, that a sparse
-proposer is simultaneously cheaper and more accurate on this workload, so that
-the expected sparsity trade-off does not appear, is therefore new, though it
-is one workload and one model pair.
+cost but not energy. In a literature search last updated in August~2026, I did
+not identify a prior study that measures the energy of a directly comparable
+closed propose--evaluate--keep loop. Under this experiment's fixed iteration
+budgets, proposal quality determines retained yield rather than how many training
+runs are scheduled. The specific finding is a large sparse-proposer energy
+advantage with a higher, but statistically uncertain, mean accuracy; it is one
+workload and one model pair.
 
 \textbf{Per-device energy attribution as a design choice rather than a model.}
 Placing proposer inference and inner-loop training on physically separate GPUs
-means $E_{\mathit{prop}}$ and $E_{\mathit{train}}$ are read from different
-devices instead of being separated by a calibration model. The contribution is
-less the idea than its verification: the alignment gate confirms empirically
-that the training device draws more during training and the proposer device
-during proposing, rather than assuming the indices are wired correctly. That
-check caught nothing in the end, but a study that omits it cannot say so.
+means GPU~1 and GPU~0 board energy are read from different devices rather than
+separated by a calibration model. Whole-session device totals still include idle
+and residency energy. Phase-aligned power checks confirm that GPU~0 draws more
+during training and GPU~1 during proposing; the looser reconstruction flag itself
+is only a coverage check and should not be mistaken for a 1\,\% accuracy test.
 
 \textbf{A methodological result that generalises beyond these subjects.} A keep
 threshold must be derived from a measured noise floor; the value I specified
@@ -34,9 +35,11 @@ meaningful event. I consider this more portable than the architectural result,
 because it applies to any study of this loop shape.
 
 I had intended to claim a second one, that deterministic sampling makes such a
-loop degenerate, and the experiment I ran to support it refuted it instead. What
-survives is narrower: temperature governs how often the proposer repeats itself
-and not what the session achieves.
+loop degenerate. The follow-up showed that $T=0$ is not sufficient to cause this
+under the revised prompt. What
+survives is narrower: temperature governs how often the proposer repeats itself.
+The available outcome samples do not establish a null effect on retention or
+accuracy.
 
 I am less confident about novelty in one respect. The observation that contract
 compliance and proposal quality are independent axes is, I suspect, known
@@ -63,21 +66,23 @@ sessions and acted on it. Those sessions retained no mutations, I concluded that
 sampling at temperature 0 had made the search degenerate, and I changed
 temperature and restarted. The reasoning was plausible and the supporting
 evidence was real: the proposals were 0.982 similar on average with one pair
-identical. It was still wrong. A later sweep showed temperature 0 retains
-mutations at the normal rate, and that three sessions retaining nothing is an
-ordinary result for the dense arm, which retains nothing 42\,\% of the time. The
+identical. It was still overconfident. Later sweeps on both arms showed that
+temperature 0 can retain mutations under the revised prompt, and that three
+sessions retaining nothing is plausible for the dense arm, which retains nothing
+in 42\,\% of its Phase~1 sessions. The
 run order is randomised precisely so that the first few runs are not
 representative, and I read them as though they were.
 
 I compounded it by changing two things at once. The restart altered sampling and
 added the budget facts to the prompt, so even after the sweep I can only say that
-the mechanism I proposed does not operate, not what the prompt contributed on the
-dense arm. Twelve sessions were spent recovering an answer that a
+temperature 0 is not sufficient under the revised prompt, not what either change contributed on the
+dense arm. Eighteen sessions were spent recovering an answer that a
 one-change-at-a-time intervention would have given for free.
 
-I also under-powered accuracy relative to energy. An unplanned replication,
-the same configuration executed in two experiments days apart, reproduced
-session energy to 0.20\,\% and test accuracy to only 6.42\,pp. Given that
+I also under-powered accuracy relative to energy. An unplanned, functionally
+equivalent control (the proposer token caps differed but were non-binding),
+executed in two experiments days apart, reproduced GPU-board session energy to
+0.20\,\% and test accuracy to only 6.42\,pp. Given that
 variance structure, spending the same machine time on more repetitions of fewer
 cells would have produced tighter accuracy estimates. I would make that trade
 differently if I repeated this.

@@ -35,12 +35,12 @@ from harness.agent_loop import run_training, _final_eval, _device   # noqa: E402
 
 
 def kept_shas(records: list[dict]) -> list[tuple[int, str]]:
-    """(iteration, sha) for every iteration whose decision was 'kept'."""
+    """Return ``(iteration, sha)`` for each mutation the harness kept."""
     sha_of, out = {}, []
     for r in records:
         if r.get("ev") == "train_start" and r.get("sha"):
             sha_of[r.get("iter")] = r["sha"]
-        if r.get("ev") == "decision" and r.get("decision") == "kept":
+        if r.get("ev") == "decision" and r.get("decision") == "keep":
             i = r.get("iter")
             if i in sha_of:
                 out.append((i, sha_of[i]))
@@ -63,7 +63,9 @@ def main() -> int:
         print(f"[FAIL] no recipe_history.bundle in {rd}")
         return 1
     if not keeps:
-        print("no kept revisions in this session; nothing to replay")
+        out = Path(a.out) if a.out else rd / "replay_keeps.json"
+        out.write_text("[]\n")
+        print(f"no kept revisions in this session; wrote an empty replay to {out}")
         return 0
 
     print(f"replaying {len(keeps)} kept revision(s) from {bundle.name}")
