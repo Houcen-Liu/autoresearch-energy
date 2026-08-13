@@ -1,0 +1,71 @@
+\section{Conclusions}\label{sec:conclusions}
+
+On a single 20\,GB GPU, a sparse Mixture-of-Experts proposer drove an agentic
+AutoML loop using \textbf{42\,\% less energy per session than a dense model of
+comparable serving footprint, while reaching higher accuracy} (0.8224 vs.\
+0.7939 test accuracy, 17 retained improvements against 12). The energy advantage
+is larger still on the component the architecture actually governs: 62\,\% less
+proposer energy, and 2.4$\times$ less energy per retained improvement. The
+trade-off that motivated the study, cheaper inference paid for with worse
+steering, and therefore more wasted downstream training, did not appear.
+Sparsity also proved the more \emph{reliable} choice: the dense proposer ended 5
+of 12 sessions below its own starting point, against 1 of 12 for the MoE.
+
+Of the two agent-loop factors, only loop budget mattered: doubling it raised
+energy per retained improvement by 108\,\%, because the improvements that survive
+are found early. Patience showed no effect at either level, which we attribute to
+proposals being large and non-compositional rather than to the mechanism being
+wrong in principle. Read as configuration guidance, the frontier says that at any
+energy budget above 56.5\,kJ the most accurate configuration available is an MoE
+configuration at the smaller loop budget.
+
+Two methodological results generalise beyond these subjects. First, \textbf{a
+keep threshold must be measured, not assumed}: the value we specified a~priori
+sat four times below the workload's noise floor, at which point a retained
+mutation is indistinguishable from re-running identical code. Second,
+\textbf{sampling temperature governs how often a proposer repeats itself without
+governing what it achieves}: duplicate proposal pairs fall from 23 at $T=0$ to
+between 2 and 9 above it, while retention and accuracy stay flat across $[0,1]$.
+
+We reached the second of these by first getting it wrong. A degenerate search at
+temperature 0 was our explanation for three early sessions that retained nothing;
+a later experiment showed temperature 0 retains mutations normally, and that
+three all-dense sessions retaining nothing is an ordinary draw from an arm that
+retains nothing 42\,\% of the time. The cost of that error was a restart, twelve
+sessions to disentangle an intervention that had changed two things at once, and
+a claim we had to withdraw. We record it because the alternative, reporting only
+the corrected account, would misrepresent how the study was actually conducted.
+
+We also note a dissociation with implications for how agentic systems are
+benchmarked: contract compliance and proposal quality are independent axes. The
+MoE violated the output contract more often than the dense model and produced
+better recipes; in the pilot a 4B model was rejected on two thirds of its
+iterations and still improved accuracy, while a 14B model complied perfectly and
+improved nothing. Benchmarks scoring format compliance or tool-call validity
+would order these pairs backwards.
+
+\textbf{Limitations.} One workload at one training budget, one model family, one
+quantization method, and $n = 12$ per arm: effect sizes are large and consistent,
+but the corrected pairwise test for the architecture contrast does not reach
+significance. The two arms differ in total capacity (30.5B vs.\ 14.8B), so
+sparsity and capacity are not fully separable; the claim is that the sparse model
+is more efficient per joule \emph{on one 20\,GB card}, not that sparsity is
+superior at matched capacity. Results are conditional on this harness, which
+demonstrably shapes them.
+
+\textbf{Extensions}, in the order we would prioritise them. (i) Reasoning as a
+factor: probing shows it inflates output 2.2--2.8$\times$ with throughput
+unchanged, and, combining that with measured power, the sparse model can
+reason for slightly \emph{less} energy than the dense model spends not reasoning
+(6.17 vs.\ 6.73\,kJ per proposal), so whether reasoning improves proposal quality
+is the natural next question. (ii) A long-horizon session: the agent recovers
+$\approx$67\,\% of the headroom to a hand-tuned reference within 20 iterations,
+and whether the remainder is reachable, or whether the loop begins overfitting the
+validation split it selects on, is measurable by replaying retained revisions
+against the test set post hoc. (iii) CPU-only proposer serving, where we expect
+the architectures to diverge sharply, since $\sim$3B active parameters are far
+better suited to CPU inference than 14.8B dense ones. (iv) Wider workload and
+model-family axes, including \texttt{nanochat} as a second subject, to test
+whether the frontier's shape is workload-invariant. The session-level
+orchestration pattern, harness and replication package are designed to make each
+a drop-in continuation.

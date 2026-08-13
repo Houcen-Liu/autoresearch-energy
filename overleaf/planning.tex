@@ -1,0 +1,85 @@
+\section{Experiment Planning}\label{sec:planning}
+
+\subsection{Subjects Selection}
+
+The \emph{system under evaluation} is the self-hosted LLM proposer. Two subjects are selected from the same model family and training recipe, isolating the architectural contrast of interest:
+
+\begin{itemize}[leftmargin=1.2em]
+\item \texttt{Qwen/Qwen3-14B-AWQ}: dense, 14.8B parameters, 9.3\,GiB at int4;
+\item \texttt{QuixiAI/Qwen3-30B-A3B-AWQ}: Mixture-of-Experts, 30.5B total with $\sim$3B active per token, 15.6\,GiB at int4.
+\end{itemize}
+
+\textbf{Deviation from the originally proposed pair.} The Qwen3.6 models named in an earlier draft cannot be served on a 20\,GB card: both exceed it \emph{on weights alone}, before any KV cache (27B AWQ = 19.05\,GiB; 35B-A3B AWQ $\approx$ 22.4\,GiB). The cause is that Qwen3.6 is multimodal and the quantizer leaves the vision tower, \texttt{lm\_head} and the linear-attention projections at 16 bits: the Hub metadata reports \texttt{I32: 25.47B, F16: 3.33B, BF16: 0.52B}, i.e.\ 3.85B unquantized parameters ($\approx$7.7\,GB) on top of 12.7\,GB of int4 weights. ``27B at int4'' does not imply 13.5\,GB. Qwen3-32B-AWQ was evaluated and rejected on arithmetic: 18.0\,GiB of weights plus $\approx$0.8\,GiB of fp8 KV cache and $\approx$1.1\,GiB of CUDA context and activations totals $\approx$19.9\,GiB against a 19.99\,GiB card.
+
+The replacement pair fits comfortably and arguably sharpens the research question: given one 20\,GB GPU, does a 30B sparse model activating $\sim$3B parameters per token outperform a 14B dense model activating all of them? That is the decision a self-hoster actually faces. Two limitations follow and are carried into Section~\ref{sec:threats}: no single publisher ships AWQ builds of both models, so the dense arm is Qwen's official quantization and the MoE a third-party build of the same method and bit-width; and total capacity is unequal (30.5B vs.\ 14.8B), so sparsity and capacity are not fully separable. Both repositories and exact revisions are recorded in the run-table metadata. The pre-registered backup pair (IBM Granite~4.1 8B vs.\ 30B) was not needed.
+
+The \emph{case-study workload} is the \texttt{autoresearch} protocol \cite{karpathy2026autoresearch}, a single editable training file, a fixed wall-clock budget per experiment, one scalar metric, and a keep-or-revert decision, driving the training of a compact convolutional network on CIFAR-10 at a per-experiment budget set by calibration to \textbf{45\,s} (Section~\ref{sec:execution}). The upstream repository publishes the protocol and its default inner workload but not a runnable agent loop, so the loop was re-implemented for this experiment; Section~\ref{sec:execution} explains why a purpose-built loop is required for the measurement rather than merely convenient. \texttt{autoresearch} ships with \texttt{nanochat}, a small LLM training pipeline, as its default inner workload; this study substitutes the CNN and preserves the protocol's semantics. The reason is schedule: \texttt{nanochat} costs 25--35 min per inner experiment on this hardware, which does not fit the compressed 4-week timeline, while the CNN keeps the full factorial affordable. \texttt{autoresearch} is selected for its workload characteristics (single-machine operation, fixed-length inner experiments, per-iteration keep/revert outcomes, and clean ground-truth evaluation metrics), not for the quality of the research it automates, which is out of scope. The \texttt{nanochat} workload is kept as a specified extension (Section~\ref{sec:conclusions}).
+
+\subsection{Experimental Variables}
+
+\begin{table}[htbp]
+\caption{Independent variables (factors).}
+\label{tab:factors}
+\small
+\begin{tabular}{p{2.1cm}p{2.6cm}p{2.9cm}}
+\toprule
+\textbf{Factor} & \textbf{Levels} & \textbf{Rationale} \\
+\midrule
+\texttt{proposer} & dense (14B); MoE (30B-A3B) & Architectural contrast: does sparsity buy energy without losing accuracy? \\
+\texttt{patience} & greedy; patience-3 & Revert on first regression vs.\ tolerate up to 3 consecutive regressions. \\
+\texttt{loop\_budget} & 10; 20 & Max inner experiments per session ($\approx$17\,min / $\approx$32\,min as executed). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:factors} lists the three factors, each at two levels. \emph{Fixed variables:} workload (CIFAR-10 CNN, fixed 45\,s training budget), intra-model configuration, namely quantization (int4, AWQ for both arms) and sampling (temperature 0.7, $\mathit{top\text{-}p}$ 0.95; see Section~\ref{sec:threats} for why temperature 0 was abandoned), reasoning mode (disabled for both arms and verified by measurement), hardware assignment (training on GPU~0, proposer on GPU~1, both RTX 4000 Ada), and pinned software versions. Fixing the intra-model configuration is a deliberate consequence of the staged design (Section~\ref{sec:design}): Stage~1 isolates the architectural effect; intra-model settings become factors only in Stage~2.
+
+\begin{table}[htbp]
+\caption{Dependent variables.}
+\label{tab:depvars}
+\small
+\begin{tabular}{p{2.6cm}p{5.2cm}}
+\toprule
+\textbf{Variable} & \textbf{Operationalization} \\
+\midrule
+$E_{\mathit{total}}$ (J) & Sum of all measured energy over the session (both GPUs + CPU/DRAM). \\
+$E_{\mathit{prop}}$ (J) & NVML integral over the proposer GPU (GPU~1). \\
+$E_{\mathit{train}}$ (J) & NVML integral over the training GPU (GPU~0). \\
+$E/\mathrm{kept}$ (J) & Pooled across sessions in a cell: $\sum E_{\mathit{total}} / \sum |\{\text{kept}\}|$. The per-session ratio is undefined when a session keeps nothing, and such sessions are not evenly distributed across arms, so averaging only the defined ratios discards precisely the sessions in which the weaker arm did worst (Section~\ref{sec:results}). Zero-kept counts are reported alongside. \\
+$E_{\mathit{wasted}}$ (J) & Energy of iterations whose mutation was reverted. \\
+\texttt{val\_acc} & Validation accuracy on a held-out CIFAR-10 split (continuous, sampled during training). \\
+Test accuracy & CIFAR-10 test-set accuracy at session end; ground-truth accuracy, y-axis of the Pareto figure. \\
+Wall-clock (s) & Session duration; iterations, kept, reverted, errored counts. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two accuracy-like signals are deliberately kept distinct: the agent's keep/revert decision is its \emph{claim} of improvement (a behavioral variable and the denominator of $E/\mathrm{kept}$), whereas \texttt{val\_acc} and test accuracy are \emph{ground truth} and alone enter the Pareto analysis.
+
+\subsection{Experimental Hypotheses}
+
+One energy-relevance hypothesis is registered per factor (all stated as two-sided nulls; $\mu$ denotes the cell mean of the named dependent variable):
+
+\begin{description}[leftmargin=1.2em]
+\item[H$_{0}^{\mathit{prop}}$:] $\mu_{E_{\mathit{total}}}$ and $\mu_{\mathrm{acc}}$ (test accuracy) do not differ between dense and MoE proposers. \emph{Mechanism under test:} MoE sparsity reduces $E_{\mathit{prop}}$ per call, but a worse-steering proposer may inflate iterations-to-kept-mutation; the net effect is non-obvious and is precisely what makes the architecture question empirical.
+\item[H$_{0}^{\mathit{pat}}$:] $\mu_{E_{\mathit{wasted}}}$ and $\mu_{E/\mathrm{kept}}$ do not differ between greedy and patience-3. \emph{Mechanism:} greedy reverts noise quickly (less waste) but may discard real improvements; patience tolerates regressions longer (more waste, possibly better final accuracy).
+\item[H$_{0}^{\mathit{bud}}$:] $\mu_{E/\mathrm{kept}}$ does not differ between budgets 10 and 20. \emph{Mechanism:} diminishing returns near local optima should raise energy-per-kept-mutation at higher budgets; two levels bound but do not locate the knee.
+\end{description}
+
+\subsection{Experiment Design}\label{sec:design}
+
+The design is \emph{staged}: the architecture is studied first, alone, at a fixed intra-model configuration; intra-model settings are varied only afterwards, on the architecture the first stage identifies as preferable. This ordering attributes effects cleanly (architecture first, then configuration headroom) and keeps the factorial tractable.
+
+\textbf{Stage 1, Phase 1 (GPU factorial).} A $2 \times 2 \times 2$ full-factorial design with 3 repetitions: 8 cells, \textbf{24 sessions}, $\approx$10 GPU-hours as executed. Cell execution order is randomized and interleaved across the run table (no blocking by cell), with a \textbf{120\,s} cool-down between sessions for thermal settling; the cool-down was raised from the proposed 60\,s after calibration showed it removes the thermal trend entirely (raw and detrended standard deviations agree to four decimals). Swapping the served model between arms costs 25\,s and occurs outside the measured window. The longest session ran 39\,min. The \textbf{baseline cell} is \emph{dense $\times$ greedy $\times$ budget 10} (designation provisional until the full design is reviewed by the supervisors); the practitioner-facing output reports all configuration effects as deltas from this baseline.
+
+\textbf{Stage 1, Phase 2 (CPU-only proposer).} The 4 cells adjacent to the Phase-1 Pareto frontier are re-run at 2 repetitions with the proposer served on CPU only, training unchanged on GPU~0, measuring the slowdown and energy shift relative to GPU serving. \emph{Use-case rationale:} the realistic self-hosting persona is a user who \emph{deploys} a model for inference on hardware they own, often without a discrete GPU, and serves their workloads with it; users running GPU-class training workloads on CPU-only machines are, by contrast, rare. Since the self-hosted artifact under evaluation is the proposer, CPU-only \emph{proposer serving} against an unchanged workload tests exactly this deployment-only scenario.
+
+\textbf{Stage 2 (intra-model configuration sweep, time permitting).} On the architecture that Stage~1 identifies as Pareto-preferable, intra-model configurations (\eg quantization level int4 vs.\ int8/fp16, serving-stack settings) are varied one factor at a time over a reduced cell set, to quantify how much further the baseline energy/performance can be improved without changing the architecture. If the 6-ECTS schedule does not permit Stage~2, its design is delivered as a specified, ready-to-run extension.
+
+\textbf{Priority order under schedule pressure:} Stage-1 GPU factorial $>$ Stage-1 CPU phase $>$ Stage 2.
+
+\subsection{Data Analysis}
+
+Analysis proceeds in four steps. (i) \emph{Descriptive statistics}: per-cell means, medians and dispersion for all dependent variables, with session-level distributions plotted per arm so that a cell mean can be seen to represent its sessions rather than to be pulled by one of them. (ii) \emph{Measurement diagnostics}, before any hypothesis is tested: the dependent variable is plotted against session duration, fitted per arm, so that an energy effect can be separated from a duration effect; the slope of that fit is mean power, and two arms lying on a single line would mean energy carried no information beyond time; and against position in the randomised run table, to establish whether any thermal or environmental drift accumulated across the campaign. (iii) \emph{Hypothesis testing}: Shapiro--Wilk on within-cell residuals and Levene's test for homoscedasticity; a full-factorial ANOVA where those hold and the Aligned Rank Transform where they do not. Given the small $N$ (8 cells $\times$ 3), effect sizes with confidence intervals (partial $\eta^2$, Cliff's $\delta$) are the primary reported output and $p$-values secondary. Contrasts are restricted to the pre-registered hypotheses and Holm-corrected as a family, rather than testing all pairs: an exhaustive pairwise sweep over three factors and four outcomes would inflate the family-wise error rate to the point where a nominally significant result carries little information. Sessions with zero kept mutations are reported as ``no-progress sessions'' rather than excluded, and the pooled ratio $\sum E / \sum \mathit{kept}$ is used wherever a per-session ratio would be undefined. (iv) \emph{Pareto analysis} (RQ2): the non-dominated set over ($E_{\mathit{total}}$, test accuracy) across cells, with each frontier margin reported against the measured keep threshold, since a margin smaller than the noise floor is not a trade-off.
+
+Two choices differ from the Green Lab analysis template. We apply the Aligned Rank Transform rather than transforming the outcome to normality: ART preserves the factorial structure and leaves the interaction terms interpretable, whereas a normalising transform changes the scale on which effects are additive. And we do not include a random effect for the session, because sessions here are independent units rather than repeated measures on the same subject; a within-subject term would misstate the design.

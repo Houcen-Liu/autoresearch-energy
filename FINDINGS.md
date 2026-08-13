@@ -913,3 +913,83 @@ prompt was doing the work and section 2.4 needs rewriting rather than softening.
 
 This raises Stage 2b from "nice extension" to **the experiment that decides
 whether a headline claim survives**, and it costs ~2.5 h.
+
+---
+
+# 13. STAGE 2b — THE TEMPERATURE CLAIM IS RETRACTED (12 sessions, 2026-08-13)
+
+`temperature` {0.0, 0.4, 0.7, 1.0} x 3 repetitions, MoE arm, greedy, budget 10,
+against the current prompt. All 12 sessions valid.
+
+## 13.1 Temperature changes repetition, not outcomes
+
+| $T$ | E (kJ) | test acc | kept | duplicate pairs | distinct fraction | errors |
+|---|---|---|---|---|---|---|
+| 0.0 | 65.8 | 0.8289 | 1.67 | **23** | 0.77 | 0.7 |
+| 0.4 | 65.6 | 0.8222 | 1.67 | 5 | 0.90 | 1.3 |
+| 0.7 | 55.4 | 0.8137 | 1.33 | 2 | 0.97 | 3.0 |
+| 1.0 | 66.0 | 0.8173 | 2.33 | 9 | 0.87 | 0.7 |
+
+Duplication responds strongly to temperature; **nothing else does.** One $T=0$
+session produced 4 distinct proposals out of 10 and still kept 2, reaching
+0.8486. Byte-identical pairs occur at *every* level, including $T=1.0$.
+
+Mean pairwise similarity was the wrong instrument: it sits at 0.964--0.978
+regardless of temperature, because all proposals are edits of the same 190-line
+file. **Duplicate-pair count discriminates; mean similarity does not.**
+
+## 13.2 The D22 diagnosis was wrong
+
+D22 claimed temperature 0 caused Phase 1's first three sessions to keep nothing.
+Stage 2b refutes it: at $T=0$ with the current prompt the MoE keeps 1.67
+mutations per session, its normal rate.
+
+The observation needs no mechanism:
+
+* the three sessions were **all dense**, which a shuffled 24-row table produces
+  with $P = 0.11$;
+* the dense arm keeps nothing in **5 of 12** Phase-1 sessions ($0.42$) even at
+  $T = 0.7$ with the corrected prompt.
+
+So three consecutive zero-keep dense sessions is an ordinary draw. I diagnosed a
+system fault from a sample consistent with ordinary variation in the worse arm,
+having a plausible mechanism ready and evidence that fit it, without checking
+whether that evidence discriminated against a simpler explanation.
+
+## 13.3 What the prompt actually did, and to which arm
+
+The restart bundled a second change: the budget facts. Its effect is
+**arm-specific**, which nothing in the design anticipated.
+
+| | `T_max` literals | assuming > 60 epochs |
+|---|---|---|
+| dense, no reasoning (Stage 2a) | 20 | **19** |
+| dense, reasoning (Stage 2a) | 19 | 13 |
+| MoE, no reasoning (Stage 2a) | 6 | 1 |
+| MoE, all temperatures (Stage 2b) | 82 | **0** |
+
+Told that the budget delivers ~43 epochs, the MoE stops designing for longer runs
+entirely; the dense proposer mostly does not. **Supplying an agent with a fact
+does not make it use the fact**, and a prompt fix validated on one model does not
+transfer.
+
+## 13.4 What survives, and what does not
+
+**Retracted:** that deterministic sampling makes a propose--evaluate--keep loop
+degenerate in any sense that affects results.
+
+**Survives:** temperature governs proposal repetition (23 -> 2--9 duplicate
+pairs) without governing retention or accuracy; the keep threshold must be
+measured; prompts are part of the instrument and act unevenly across models.
+
+**Untested:** $T=0$ on the *dense* arm against the corrected prompt. Stage 2b is
+MoE-only, so the retraction is established where it was tested and inferred
+elsewhere.
+
+## 13.5 Cost of the error
+
+One restart, three discarded sessions that were valid measurements, twelve
+sessions to disentangle an intervention that changed two things at once, and a
+claim withdrawn from the abstract. Recorded here in full because a study that
+reports only what survived gives no information about how often its authors were
+wrong along the way.

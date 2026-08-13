@@ -1,0 +1,46 @@
+\section{Related Work}\label{sec:related}
+
+Karsten \etal present \texttt{experiment-runner} \cite{karsten2025experimentrunner}, the S2 group's framework for orchestrating measurement-based experiments on software systems; it defines run tables, factor sweeps, and lifecycle hooks for instrumentation. Our experiment uses the framework in a configuration not previously reported: as a \emph{session-level} orchestrator, where one ``run'' is a complete agent session of 15--40 minutes rather than a short deterministic program invocation. Two small changes to the vendored framework were required and are documented in the replication package: the profiler launches the target program as its own child, so the target's working directory, environment and output redirection had to be made settable (without this the measured program can fail to start while the profiler records a perfectly valid trace of an idle machine), and the profiler's assumption that raised privileges are always needed for RAPL had to become configurable, since they are not needed on our host.
+
+Sallou \etal introduce \texttt{EnergiBridge} \cite{sallou2023energibridge}, a cross-platform energy profiler sampling CPU (RAPL) and GPU (NVML) power. We adopt the tool itself unchanged; our contribution on the measurement side is the per-GPU attribution design, which places proposer inference and inner-loop training on physically separate devices so that NVML readings decompose session energy without modeling assumptions, together with the alignment gate that verifies the decomposition empirically (during training the training device must draw substantially more than the proposer device, and the reverse while proposing) rather than assuming the device indices are wired correctly.
+
+Cruz \etal \cite{cruz2024innovating} position the convergence of software engineering and Green AI and explicitly name complex, composite AI workloads as underserved measurement targets. Our experiment answers that call for the agentic AutoML class, which their agenda anticipates but does not measure.
+
+Cursaru \etal \cite{cursaru2024codellama} run a controlled experiment on the energy efficiency of Code Llama-generated source code, using the same methodological school (GQM, factorial design, \texttt{experiment-runner}). Their unit of analysis is the generated artifact; ours is the generating loop itself: we measure the energy of the agentic process, not of its outputs.
+
+Lu \etal's AI Scientist \cite{lu2024aiscientist} and its successor \cite{yamada2025aiscientist2} automate the full research pipeline end-to-end. They are the most prominent agentic-research systems but are poorly suited to controlled energy measurement: multi-hour heavy-tailed sessions, fuzzy success oracles, and high per-run API cost. Beel \etal's critical evaluation \cite{beel2025evaluating} documents these failure modes. We instead select \texttt{autoresearch}, whose fixed-length inner experiments and binary keep/revert outcomes make it tractable as a measurement case study; our interest is the workload's energy characteristics, not the scientific quality of its outputs.
+
+Huang \etal's MLAgentBench \cite{huang2024mlagentbench} benchmarks LLM agents on ML experimentation tasks and measures success rates and API cost. Energy is absent from their evaluation; we treat it as a first-class dependent variable and relate it to ground-truth accuracy rather than to task-completion counts.
+
+Luccioni \etal \cite{luccioni2024power} measure inference energy across model architectures and tasks and establish that per-inference cost varies by orders of magnitude with architecture; this is the single-prompt analogue of our proposer factor. Our experiment extends this line from isolated prompts to a closed agentic loop, where proposer quality feeds back into how much downstream training energy is spent.
+
+\subsection{How our results compare}
+
+Because no prior study measures the energy of an agentic AutoML loop, our
+headline numbers cannot be compared like for like. Three partial comparisons are
+possible.
+
+Luccioni \etal \cite{luccioni2024power} find per-inference energy varying by
+orders of magnitude with architecture on single prompts. Our proposer-phase
+measurements are consistent in direction but far smaller in spread: a
+2.6$\times$ difference between a 30B sparse and a 14B dense model at equal
+quantization on one card. The gap is expected, their range spans model classes
+and task types, ours holds everything but sparsity fixed, but it suggests
+single-prompt figures should not be extrapolated to closed loops, where our
+$E_{\mathit{prop}}$ is only 40--60\,\% of session energy and proposal quality
+governs the remainder.
+
+MLAgentBench \cite{huang2024mlagentbench} reports agent success rates on ML
+experimentation tasks and treats API cost as the resource. Our contract-compliance
+result complicates that accounting: the arm with the \emph{higher} rejection rate
+(9.6\,\% vs.\ 0.0\,\%) produced the better recipes, so a benchmark scoring
+well-formed output would have ranked our two subjects in the wrong order. We would
+expect the same dissociation to affect success-rate metrics that require parseable
+agent actions.
+
+Cursaru \etal \cite{cursaru2024codellama} measure the energy of code an LLM
+generates. Our unit is the generating loop rather than its output, and the two
+compose: in our sessions 64\,\% of energy went to mutations that were reverted,
+i.e.\ to running generated code that was then discarded. A study of generated-code
+efficiency measures the 36\,\%; the remainder is invisible to it and is where the
+architectural difference between our arms appears most strongly.

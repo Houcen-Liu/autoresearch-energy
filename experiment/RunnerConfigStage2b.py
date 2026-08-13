@@ -78,7 +78,15 @@ PROFILE = os.environ.get("AR_PROFILE", str(EXP_ROOT / "profiles" / "server.yaml"
 PATIENCE_LEVELS = {"greedy": 1, "patience3": 3}
 
 # Fixed variables for Stage 2b, taken from the cheapest Phase-1 configuration.
-STAGE2B_ARM = "moe"      # Phase 1 established the MoE as the better arm
+# Arm and levels are overridable so the same config can run the confirmatory
+# dense sweep without a second file:
+#   AR_ARM=dense AR_TEMPS=0.0,0.7 python experiment-runner/ experiment/RunnerConfigStage2b.py
+# The dense sweep is a MECHANISM check, not a repeat of the main sweep: with a
+# 42 % zero-retention rate on that arm, n=3 per level cannot detect an effect on
+# retention. Duplicate-pair count can, and that is what it is for.
+STAGE2B_ARM = os.environ.get("AR_ARM", "moe")   # Phase 1 made the MoE the better arm
+STAGE2B_TEMPS = [float(x) for x in
+                 os.environ.get("AR_TEMPS", "0.0,0.4,0.7,1.0").split(",")]
 STAGE2B_PATIENCE = 1
 STAGE2B_LOOP_BUDGET = 10
 
@@ -86,7 +94,8 @@ STAGE2B_LOOP_BUDGET = 10
 class RunnerConfig:
     ROOT_DIR = Path(__file__).resolve().parent
 
-    name: str = "autoresearch_energy_stage2b_temperature"
+    name: str = os.environ.get(
+        "AR_EXP_NAME", "autoresearch_energy_stage2b_temperature")
     results_output_path: Path = ROOT_DIR.parent / "experiments"
     operation_type: OperationType = OperationType.AUTO
     time_between_runs_in_ms: int = 120_000          # >=120 s thermal cooldown
@@ -113,7 +122,7 @@ class RunnerConfig:
 
     # ------------------------------------------------------------- run table
     def create_run_table_model(self) -> RunTableModel:
-        temperature = FactorModel("temperature", [0.0, 0.4, 0.7, 1.0])
+        temperature = FactorModel("temperature", STAGE2B_TEMPS)
         self.run_table_model = RunTableModel(
             factors=[temperature],
             repetitions=3,

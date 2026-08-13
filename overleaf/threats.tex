@@ -1,0 +1,51 @@
+\section{Threats To Validity}\label{sec:threats}
+
+\subsection{Internal Validity}
+\emph{Run order and thermal drift}: cell order is randomized and interleaved across the run table, with a \textbf{120\,s} inter-session cool-down. The pilot showed this is not cosmetic: eight baseline repeats without a cool-down gave a standard deviation of 1.01\,pp, and the same measurement with a cool-down gave 0.37\,pp, so the apparent noise floor was inflated 2.7$\times$ by thermal drift rather than by stochasticity. On the server, raw and detrended standard deviations agree to four decimals, confirming no residual trend within a calibration series. Across the campaign as a whole, session energy correlates with position in the run table at $r = -0.05$ (Figure~\ref{fig:diagnostics}c), so no drift accumulated over the 24 sessions that randomisation would have had to absorb. \emph{Background load}: sessions run on a dedicated workstation with a frozen software environment. \emph{Idle-GPU standby power}: measured at 8.63\,W and 7.90\,W over 30\,min; a card with resident weights draws $\approx$13\,W above idle and this enters the baseline subtraction.
+
+\emph{Sampling temperature, and a diagnosis we had to retract.} An earlier draft
+fixed proposer sampling at temperature 0 for determinism. Phase~1's first three
+sessions retained no mutations at all, and we attributed this to a degenerate
+search: with greedy selection the recipe returns to the baseline after every
+rejection, so the prompt barely changes between iterations and a deterministic
+proposer returns a nearly unchanged answer. We changed sampling to $T=0.7$,
+$\mathit{top\text{-}p}$ 0.95, discarded those sessions and restarted.
+
+Stage~2b (Section~\ref{sec:results:temperature}) tested that reasoning and
+refuted it. At $T=0$ against the current prompt the MoE retains 1.67 mutations
+per session, its normal rate; temperature changes duplication (23 duplicate pairs
+at $T=0$, 2--9 above it) but leaves retention and accuracy flat across $[0,1]$.
+The observation that triggered the restart is explained without any such
+mechanism: the three sessions were all dense by the shuffled run order
+($P = 0.11$), and the dense arm retains nothing in 42\,\% of its sessions even at
+$T=0.7$.
+
+We report this rather than quietly adopting the corrected account, because the
+episode is itself a threat to internal validity of a kind that is easy to leave
+undocumented. A mid-experiment intervention was made on a diagnosis formed from
+three sessions, and it bundled two changes (sampling and prompt content) whose
+effects could not afterwards be separated without a further experiment. The
+sessions discarded at that point were valid measurements. Our practice for the
+remainder of the study was to change one thing at a time and to record the
+intervention as data.
+
+\emph{The prompt is part of the instrument.} Three times the experiment was floored by information the agent could not observe rather than by any property of the models: the data contract (that \texttt{load\_splits()} returns pre-normalised NCHW tensors) reduced crashes from 4 in 5 iterations to 1 in 5; the library versions in the execution environment reduced them from 7 in 9 to 0 in 10; and stating what the wall-clock budget actually buys ($\approx$43 epochs) stopped the agent proposing schedules written for hundreds. Each correction was comment-only, changing no executable line, so the calibration results remained valid. The principle applied throughout was to \textbf{supply facts the agent cannot observe and withhold the judgement under measurement}: tensor shapes and library versions are properties of the environment a human collaborator would simply read, whereas ``retune the learning rate when changing optimiser'' is the reasoning being evaluated. An under-specified prompt produces a floor effect that is indistinguishable, in the results, from poor model capability.
+
+\subsection{External Validity}
+Results are conditional on one workload (a compact CIFAR-10 CNN at a 45\,s budget), one model family (Qwen3), one quantization method and level (AWQ int4), and one hardware configuration. A vision CNN also exercises the training GPU differently from the LLM-training workload \texttt{autoresearch} was built around (shorter kernels, lower memory pressure), so per-session energy profiles will not transfer directly to \texttt{nanochat}-style workloads. The MoE-vs-dense contrast generalizes only to the extent that Qwen3's sparsity design is representative of self-hostable MoE models.
+
+Two properties of the subject pair bound the claim further. \emph{Publisher asymmetry}: no single publisher ships AWQ builds of both models, so the dense arm uses Qwen's official quantization and the MoE a third-party build. The method and bit-width are identical; the calibration corpus is not. \emph{Unequal total capacity} (30.5B vs.\ 14.8B): sparsity and capacity cannot be fully separated, so the study answers ``which architecture is more efficient per joule on one 20\,GB card'' and not ``is sparsity superior at matched capacity''. The latter required Qwen3-32B, which does not fit.
+
+\emph{Compiled kernels}: attention kernels are JIT-compiled for the local architecture (sm89) against a pinned stack (vLLM 0.27.1, FlashInfer 0.6.16.post3, torch 2.13.0, CUDA 13.0, driver 580.159.03). Absolute joules are specific to this stack and silicon; both arms share one build, so the contrast is unaffected. \emph{Prefix caching} is enabled, as it is by default in production serving, so from the second iteration the shared prompt prefix skips prefill; this is realistic and identical across arms, but per-iteration proposer energy is not uniform within a session. The \texttt{nanochat} workload is specified as the first extension, and broader workload generalization is out of scope.
+
+\subsection{Construct Validity}
+\emph{Energy attribution} is by direct per-device measurement (separate GPUs); this removes the modeling assumptions a co-located or surrogate design would require, which earlier drafts of this design identified as their largest threat. \emph{Accuracy} is operationalized by ground-truth workload metrics (validation and test-set accuracy), kept strictly distinct from the agent's keep/revert self-assessment; conflating the two would overstate the agent's competence. \emph{Short-budget scale}: the keep/revert threshold is derived from a measured noise floor rather than assumed. Eight repeats of the unmodified baseline at the 45\,s budget give a detrended standard deviation of 0.62\,pp, hence $\epsilon = 0.0123$; the 0.001 assumed in an earlier draft lies four times below that floor, at which point a ``kept'' mutation is indistinguishable from re-running identical code. The threshold demonstrably binds: one session recorded 0.8296 against a retained best of 0.8178, an improvement of 1.18\,pp that fell just under $\epsilon$ and was correctly reverted.
+
+\emph{Energy versus duration}: a session that finishes sooner uses less energy for that reason alone, so an energy difference is only an efficiency claim if it exceeds what duration explains. Regressing session energy on wall-clock per arm (Figure~\ref{fig:diagnostics}a) gives mean session powers of 103\,W and 95\,W, i.e.\ the arms differ by 16\,\% in power and 48\,\% in duration; the architectural power difference is concentrated in the proposer phase (112.8\,W against 72.5\,W), which is the component the factor governs. We therefore report both, and avoid the two one-sided readings: session energy alone understates the architectural effect, proposer power alone overstates it.
+
+\emph{Frontier margins against the noise floor}: a Pareto frontier computed from cell means can report non-dominated points whose advantage is smaller than the measurement noise. One dense cell is non-dominated by 0.053\,pp, 23 times below $\epsilon$ and 60 times below the within-cell standard deviation, while consuming 1.91$\times$ the energy. Frontier margins are therefore reported against $\epsilon$ rather than asserted from means alone.
+
+\emph{Undefined ratios}: $E_{\mathit{per\,kept}}$ does not exist for a session that keeps nothing, and such sessions are not evenly distributed between arms (5 of 12 dense, 1 of 12 MoE). Averaging only the defined values discards precisely the sessions in which the weaker arm performed worst and understates the effect by 38\,\%. The pooled ratio $\sum E / \sum \mathit{kept}$ is reported instead, with zero-kept counts stated alongside.
+
+\subsection{Conclusion Validity}
+The design is small-$N$ (8 cells $\times$ 3 repetitions): two-level factors detect only monotonic effects, and power for interaction terms is limited. Accordingly, effect sizes with confidence intervals are pre-registered as the primary output, significance tests as secondary; no-progress sessions are reported separately rather than dropped; and all raw traces, logs, and analysis notebooks ship in the replication package so conclusions can be re-derived.

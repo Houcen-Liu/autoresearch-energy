@@ -1,0 +1,175 @@
+\section{Discussion}\label{sec:discussion}
+
+\subsection{RQ1: what the factor effects mean}
+
+\textbf{Sparsity did not impose the trade-off it is usually assumed to impose.}
+The registered mechanism for H$^{\mathit{prop}}$ anticipated a tension: MoE
+sparsity lowers $E_{\mathit{prop}}$ per call, but a worse-steering proposer could
+inflate iterations-to-kept-mutation and spend the saving back on training energy.
+That tension did not materialise. The MoE was cheaper on every energy measure and
+\emph{also} more accurate, so the net effect is not a compromise between the two
+but an improvement on both. For a self-hoster choosing between these models on a
+20\,GB card the decision is therefore not a trade-off at all.
+
+The mechanism is multiplicative rather than additive. Activating $\sim$3B parameters instead of 14.8B lowers
+instantaneous power by $\sim$36\,\% (72.5 vs.\ 112.8\,W) \emph{and} halves
+proposal latency. Either alone would give a modest saving; together they give
+2.6$\times$. This also explains why the effect is larger in $E_{\mathit{prop}}$
+($-62\,\%$) than in $E_{\mathit{total}}$ ($-42\,\%$): training energy is common to
+both arms and dilutes the architectural difference. Any design that lets the
+proposer occupy a larger share of session time, a shorter training budget, a
+larger loop budget, will show a larger architectural effect, which is why the
+45\,s budget was chosen (Section~\ref{sec:execution}).
+
+\textbf{Reliability, not mean accuracy, is where the arms differ most.} Best
+accuracy observed per session averages $-2.21$\,pp for the dense proposer against
+$+7.23$\,pp for the MoE, yet the dense \emph{median} is $+4.69$\,pp. The mean is
+dragged below baseline by a minority of sessions in which proposals collapse to
+chance level, one replaced SGD with AdamW while retaining a learning rate an
+order of magnitude too large for Adam. The distinction matters practically: a
+session ending below its own starting point has spent its entire energy budget
+for a negative result, and the dense proposer did this 5 times in 12 against the
+MoE's 1. Reporting only mean accuracy would have understated the difference
+between the two arms and mischaracterised its nature.
+
+\textbf{Patience behaved as if the mechanism were absent.} H$^{\mathit{pat}}$
+posited a waste-versus-quality trade-off: greedy reverts noise quickly but may
+discard real improvements, while patience tolerates regressions and may recover
+changes that only pay off in combination. Neither half appeared (Cliff's
+$\delta = 0.04$ and $0.12$, both $p_{\mathit{holm}} = 1.000$). The most plausible
+reading is that the proposals are not compositional in the way the mechanism
+assumes: proposals rewrite substantial portions of the recipe rather than making
+small orthogonal changes, so a chain of provisional keeps rarely combines into
+something better than its parts. A workload eliciting smaller, more local edits
+might well show the effect the hypothesis predicted.
+
+\textbf{Loop budget confirmed diminishing returns, and locates them early.}
+Doubling the budget raised energy per retained improvement by 108\,\%
+($\delta = -0.80$). Because the improvements that survive are found early, the
+second ten iterations largely purchase rejected proposals. This is the one
+contrast that survived Holm correction, and it carries the clearest practitioner
+implication: for this workload, running a session twice as long is close to twice
+as expensive per useful result.
+
+\subsection{RQ2: reading the frontier}
+
+Two of three non-dominated cells are MoE cells, and the cheapest, MoE, greedy,
+budget 10, reaches 0.8209 test accuracy for 56.5\,kJ. As configuration
+guidance: \emph{at any energy budget above 56.5\,kJ, the most accurate
+configuration available is an MoE configuration}; the dense arm never buys
+accuracy that the MoE cannot buy more cheaply.
+
+The dense frontier point deserves scepticism rather than interpretation. It is
+non-dominated only because its mean accuracy exceeds the cheapest MoE cell by
+0.053\,pp, which is 23 times smaller than the measured keep threshold and 60
+times smaller than the within-cell standard deviation, at 1.91$\times$ the energy.
+It is an artifact of computing a frontier from cell means without reference to the
+noise floor. We report it rather than silently dropping it, because the general
+point applies to any Pareto analysis over noisy measurements: \textbf{a frontier
+margin smaller than the measurement noise is not a trade-off, and a frontier
+figure without a noise reference invites over-reading.}
+
+\subsection{The harness is part of the instrument}
+
+Three times during execution the experiment was floored not by any property of
+the models but by information the agent could not observe: that the data was
+already normalised, that the installed library versions had removed the APIs it
+was using, and how few epochs the wall-clock budget actually buys. Each was fixed
+with comments alone, and each moved the crash rate substantially
+(4/5 $\rightarrow$ 1/5; 7/9 $\rightarrow$ 0/10).
+
+The third of those has an arm-specific effect we did not anticipate. Told that
+the budget delivers roughly 43 epochs, the MoE stops proposing schedules for
+longer runs entirely (0 of 82 \texttt{T\_max} literals above 60 epochs across
+Stage~2b), while the dense proposer largely does not (19 of 20 in Stage~2a).
+Supplying an agent with a fact does not make it use the fact, and a prompt
+intervention validated on one model cannot be assumed to transfer to another.
+
+\subsection{A diagnosis we made and had to retract}
+
+The episode we consider most instructive is one where we got it wrong. Phase~1's
+first three sessions retained no mutations, and we diagnosed a degenerate search
+caused by sampling at temperature 0: under greedy selection the recipe returns to
+the baseline after each rejection, so a deterministic proposer sees an almost
+unchanged prompt and returns an almost unchanged answer. The proposals bore this
+out, with 0.982 mean pairwise similarity and one byte-identical pair. We changed
+temperature, restarted, and retained mutations immediately.
+
+The diagnosis was wrong, and a later experiment was needed to establish that. At
+$T=0$ against the current prompt the MoE retains mutations at its normal rate,
+and temperature has no detectable effect on retention or accuracy anywhere in
+$[0,1]$. What temperature does affect is repetition: 23 byte-identical proposal
+pairs at $T=0$ against 2--9 above it. Repetition is real, and it is wasteful,
+but it is not what stops a session from succeeding; one $T=0$ session produced
+four distinct proposals out of ten and still retained two of them.
+
+The original observation needs no mechanism at all. The three sessions were all
+dense, which the shuffled run order produces 11\,\% of the time, and the dense
+arm retains nothing in 42\,\% of its sessions regardless. We had diagnosed a
+system failure from a sample that was consistent with ordinary variation in the
+worse of the two arms.
+
+Two things follow for practice. Diagnosing an experiment from its first few runs
+invites exactly this error, because the run order is randomised precisely so that
+early runs are not representative. And an intervention made on such a diagnosis
+should change one thing: ours changed sampling and prompt content together, which
+cost a further twelve sessions to disentangle. We report the sequence rather than
+the corrected conclusion alone, because a study that only reports what survived
+gives no information about how often its authors were wrong along the way.
+
+\subsection{Reasoning substitutes for sparsity rather than compounding with it}
+
+Stage~2a was motivated by a plausible expectation: that a reasoning pass would
+catch the kind of error the dense proposer made repeatedly, and that the sparse
+model's cheaper tokens would make reasoning affordable where the dense model's do
+not. The second half held: the MoE reasons for approximately what the dense
+model spends not reasoning. The first did not, and the interaction is more
+interesting than either.
+
+Reasoning materially improved the dense arm ($+6.0$\,pp pooled) and did nothing
+measurable for the MoE. Whatever deliberation supplies, the sparse model already
+had; buying both is buying the same capability twice, at 1.8 times the energy.
+We would not have predicted the direction of this interaction. A study running
+only one arm would have drawn the opposite practical conclusion depending on
+which arm it chose.
+
+The practical consequence is a ranking that inverts the intuitive one. Faced with
+a fixed energy budget, a self-hoster should spend it on a sparse model and leave
+reasoning disabled: that configuration matched dense-with-reasoning to within a
+fifth of the noise floor while using a third of the energy. Reasoning is not
+useless, since it rescues a weak proposer, but it is an expensive way to reach a
+place the sparse model reaches for free.
+
+That reasoning \emph{increased} error rates in both arms (dense
+1.0~$\rightarrow$~4.3, MoE 3.3~$\rightarrow$~4.3) contradicts what we expected. Deliberation produced more ambitious proposals,
+not more correct ones. Whether this is a property of these models, of this
+prompt, or of code-generation under a short training budget, we cannot separate
+with the data at hand.
+
+\subsection{What the unplanned replication tells us}
+
+Phase~1 and Stage~2a each contain a \emph{dense, greedy, budget-10,
+reasoning-off} cell, executed days apart. Their session energies agree to
+0.20\,\%; their test accuracies differ by 6.42\,pp. Read together, these say the
+apparatus is stable and the agent is not.
+
+This has two consequences we would carry into any follow-up. First, it is the
+concrete justification for the design's pre-registered preference for effect
+sizes over significance tests, with agent-side variance of this magnitude at
+$n=3$, a significance test on accuracy is answering a question about sample size
+rather than about proposers. Second, it suggests the two dependent variables
+deserve different treatment: energy comparisons here are far better powered than
+accuracy comparisons, so where the two disagree, the energy result is the more
+trustworthy. A design with the same budget spent as more repetitions and fewer
+cells would have produced tighter accuracy estimates, and we would recommend that
+trade to anyone repeating this.
+
+\subsection{Contract compliance is not proposal quality}
+
+The guard rejected none of the dense proposals and 9.6\,\% of the MoE's, yet the
+MoE produced the better recipes. The pilot showed the same dissociation in a
+sharper form: a 4B model was rejected on four of six iterations and still gained
+$+8.8$\,pp, while a 14B model complied perfectly and gained nothing. Benchmarks
+that score agents on output-format compliance or tool-call validity would rank
+these pairs in the wrong order. Compliance and quality should be reported as
+separate axes.

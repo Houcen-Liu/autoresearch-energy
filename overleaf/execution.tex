@@ -1,0 +1,58 @@
+\section{Experiment Execution}\label{sec:execution}
+
+\textbf{Hardware.} A single S2-group workstation hosts the full Phase-1 stack. The machine provides \textbf{two RTX 4000 Ada cards (20\,GB each)}; the RTX 4090 assumed in an earlier draft is not present. GPU~0 runs the inner CNN training and GPU~1 serves the proposer at int4. Because both cards are 20\,GB and no spare exists, the fit constraint drove subject selection (Section~\ref{sec:planning}). Idle draw was measured over 30\,min at 8.63\,W (GPU~0) and 7.90\,W (GPU~1); a card holding resident model weights draws $\approx$13\,W above idle even while serving nothing, a standing cost of self-hosting that enters the baseline subtraction. Placing training and inference on physically separate GPUs means NVML per-device readings decompose session energy into $E_{\mathit{train}}$ and $E_{\mathit{prop}}$ \emph{by measurement}, with no co-location contention, no calibration-based subtraction, and no modeling assumptions. Phase 2 serves the proposer on the workstation's CPU (via a CPU-optimized runtime, \eg \texttt{llama.cpp}) with training unchanged.
+
+\textbf{Software infrastructure.} The S2 \texttt{experiment-runner} framework \cite{karsten2025experimentrunner} acts as the \emph{session-level orchestrator}: each run in its run table is one complete \texttt{autoresearch} session. Per run, \texttt{RunnerConfig.py} (i) instantiates the session's \texttt{program.md} from a template with the patience directive and loop-budget cap for the assigned cell; (ii) points \texttt{autoresearch} at the local serving endpoint for the assigned proposer; (iii) launches the agent session as the target program; (iv) starts \texttt{EnergiBridge} \cite{sallou2023energibridge}, which samples CPU package + DRAM (RAPL) and both GPUs (NVML) at $\approx$10\,Hz for the whole session; and (v) on session exit, parses the session log (iteration timestamps, keep/revert outcomes, token counts) and the energy traces into the run-table row, with energy samples matched to iteration boundaries by timestamp. \textbf{Deviation:} the upstream \texttt{autoresearch} repository publishes the protocol and its inner workload but contains no agent loop, so the protocol, one editable training file, a fixed wall-clock training budget, one scalar metric, keep or revert, was re-implemented for this experiment, with patience and loop budget \emph{enforced in code} rather than requested in a prompt. The protocol is credited to Karpathy \cite{karpathy2026autoresearch}; the loop control, guards, error taxonomy and per-device energy sampling are ours and ship in the replication package. All components are version- and revision-pinned and recorded in the run-table metadata. In particular the editable recipe was frozen after calibration and before Phase~1 at commit \texttt{23e24fe}; every Phase-1 session starts from that exact file, and its mutation history is archived per session as a git bundle in the replication package. The two proposer builds are pinned to their exact HuggingFace revisions (\texttt{Qwen/Qwen3-14B-AWQ} at \texttt{31c69ef}, \texttt{QuixiAI/Qwen3-30B-A3B-AWQ} at \texttt{1ba5586}), and the serving environment is captured in \texttt{serving-requirements.txt}.
+
+\textbf{Why a purpose-built agent loop.} The upstream \texttt{autoresearch}
+repository publishes the protocol and its default inner workload but does not
+ship a runnable agent loop, so some implementation was unavoidable. The more
+substantive question is why a general-purpose agent framework (Aider, OpenHands,
+SWE-agent, AutoGen) was not used instead, since any of them can edit a file in a
+loop. Four requirements of this experiment are incompatible with how such
+frameworks are built.
+
+\emph{Factors must be enforced, not requested.} Patience and loop budget are
+independent variables, so they must mean exactly the same thing for both
+proposers. A framework expresses such policy in the prompt and relies on the
+model to comply; compliance varies by model, which would confound the factor with
+the arm under test. Here both are enforced in Python, so \texttt{patience}~$=3$ is
+identical for dense and MoE by construction.
+
+\emph{Energy attribution needs sharp phase boundaries.} The central measurement
+decomposes a session into $E_{\mathit{prop}}$ and $E_{\mathit{train}}$ by cutting
+a 10\,Hz power trace at the instant proposing stops and training starts. The loop
+emits \texttt{propose\_start/end} and \texttt{train\_start/end} with paired
+wall-clock and monotonic timestamps for exactly this purpose. General agents
+interleave tool calls, streaming and internal retries, and expose no such
+instant; without it, the decomposition would revert to a modelled estimate, which
+is the threat this design exists to avoid.
+
+\emph{Infrastructure failure must be separable from agent failure.} Frameworks
+retry internally and absorb the distinction. This experiment depends on it: a
+flaky endpoint would otherwise be indistinguishable from a poor proposer. The
+taxonomy is what allows a session with a 0\,\% infrastructure-error rate and a
+30\,\% agent-error rate to be reported as valid evidence, with the latter treated
+as data rather than as noise.
+
+\emph{Every proposer attempt must be accounted.} Tokens, latency, outcome and
+finish reason are recorded per attempt, under a time budget spanning retries.
+Hidden retries would make proposer energy uninterpretable, since a single
+iteration could contain an unknown number of inferences.
+
+This is not a from-scratch system. Orchestration is \texttt{experiment-runner},
+energy measurement is \texttt{EnergiBridge}, serving is vLLM, and the protocol is
+Karpathy's; the custom component is only the loop, the one place where
+general-purpose design conflicts with measurement requirements. The cost is
+recorded in Section~\ref{sec:threats}: the results are conditional on this
+harness, and the harness demonstrably shapes them, so it is pinned, unit-tested
+and shipped in the replication package rather than treated as a neutral conduit.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/infra.drawio.pdf}
+\caption{Measurement infrastructure: session-level orchestration over the agent loop, with per-GPU energy attribution.}
+\label{fig:infra}
+\end{figure}
+
+\textbf{Procedure and schedule (4 weeks, full-time).} \emph{Week 1:} pin all versions, build \texttt{RunnerConfig.py}, run the end-to-end smoke test by day~3. \textbf{The per-experiment budget was set by measurement rather than assumption:} at 45\,s the reference recipe leaves $+15.27$\,pp of headroom above the baseline, against $+14.32$\,pp at 240\,s, 5.3$\times$ the compute \emph{reduces} headroom, because the workload saturates. Signal-to-noise is within 8\,\% between the two (24.6 vs.\ 26.5), so the short budget is not a compromise. It also raises the proposer's share of session wall-clock from $\approx$17\,\% to 40--57\,\%, making the experiment substantially more sensitive to its own headline factor. The keep threshold was likewise measured, not assumed: eight repeats of the unmodified baseline with a 120\,s cool-down give a detrended standard deviation of 0.62\,pp, hence $\epsilon = 0.0123$. The value of 0.001 assumed in an earlier draft sits four times \emph{below} the noise floor, at which point ``kept mutation'' is not a meaningful event; days 4--5: iteration--energy alignment verification, idle-baseline measurement (agent loop with a sleep stub in place of training), cool-down calibration; first Phase-1 batches launch at the end of the week. \emph{Week 2:} Phase-1 main run: 12 sessions at budget 10 and 12 at budget 20. Calibration reduced the training budget from $\approx$4\,min to 45\,s (below), so sessions ran to a median of 17\,min and 32\,min respectively and the factorial cost $\approx$10 GPU-hours rather than the $\approx$35 originally budgeted; daytime is used to build the analysis pipeline and apply it to completed sessions on a rolling basis, and reruns of errored sessions are folded into the next batch. \emph{Week 3:} Phase-2 CPU-only subset (8 sessions, slower because proposer inference moves to CPU) and, with the compute freed by the short sessions, the Stage-2 intra-model sweep. \emph{Week 4:} final analysis and report. The overnight-batch requirement is now modest ($\approx$4--6 nights in total); if access is share-scheduled, the priority order of Section~\ref{sec:design} applies.
