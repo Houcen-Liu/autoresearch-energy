@@ -842,3 +842,74 @@ estimate of accuracy.
 
 It also means energy comparisons in this study are far better powered than
 accuracy comparisons, and should carry more of the argument.
+
+---
+
+# 12. CORRECTION to section 2.4 — the temperature claim is confounded (2026-08-13)
+
+Stage 2a's proposal files were inspected to check whether reasoning produced
+"more ambitious but not more correct" proposals. It does: edit distance from the
+frozen baseline roughly doubles with reasoning (dense 0.031 -> 0.058, MoE
+0.038 -> 0.056), while error rates rise. That part stands.
+
+But the same inspection undermines how section 2.4 attributes the Phase-1 fix.
+
+## 12.1 Duplicates persist at temperature 0.7
+
+| cell | mean pairwise similarity | byte-identical pairs | pairs >= 0.99 |
+|---|---|---|---|
+| dense, no reasoning | 0.957 | **2** | 7 |
+| dense, reasoning | 0.948 | 0 | 8 |
+| MoE, no reasoning | 0.971 | **5** | **28** |
+| MoE, reasoning | 0.938 | 0 | 6 |
+
+The MoE-without-reasoning cell contains five byte-identical proposal pairs and
+28 pairs above 0.99 similarity -- and it produced the **best outcome of the whole
+study** (2.00 kept, 0.8469 test accuracy). Meanwhile mean similarity moved only
+from 0.982 (degenerate Phase 1) to ~0.95 (healthy runs).
+
+Two conclusions follow. **Mean pairwise similarity is a weak diagnostic**: 0.95
+and 0.98 are not visibly different, yet one regime keeps mutations and the other
+keeps none. And **duplicate proposals are wasteful but not fatal** -- they cost an
+iteration each without preventing the session from succeeding.
+
+Reasoning eliminates byte-identical pairs entirely (5 -> 0, 2 -> 0), which is a
+real mechanism, though it did not translate into better outcomes.
+
+## 12.2 The confound
+
+The Phase-1 restart changed **two** things at once:
+
+1. sampling temperature 0 -> 0.7 (`top_p` 1.0 -> 0.95);
+2. the prompt gained a measured statement of what the training budget buys
+   (~43 epochs, ~15k steps, baseline accuracy) -- because the agent had been
+   proposing `CosineAnnealingLR(T_max=100)` for a 43-epoch run.
+
+Keeps appeared immediately afterwards. **We cannot attribute that to temperature
+alone**, and the duplicate evidence above makes the prompt change a live
+alternative explanation: a proposer that knows the budget proposes differently
+regardless of how it samples.
+
+### What is still solid
+
+* At temperature 0 the search was measurably degenerate: 0.982 mean similarity,
+  a byte-identical consecutive pair, 0 kept across 3 sessions, **no near-misses**.
+* No conventional health metric detected it.
+* Reproducibility in such loops belongs at the distribution level.
+
+### What must be softened
+
+The claim that *temperature 0 caused* the null result. The defensible version is
+that the degenerate search **coincided with** temperature 0 and was resolved by
+an intervention that changed sampling **and** prompt content together.
+
+### How to resolve it
+
+**Stage 2b resolves this directly.** The temperature sweep {0.0, 0.4, 0.7, 1.0}
+runs against the *current* prompt, which already contains the budget facts. If
+temperature 0 still produces degenerate search and no keeps with the improved
+prompt, temperature is the cause. If temperature 0 now performs acceptably, the
+prompt was doing the work and section 2.4 needs rewriting rather than softening.
+
+This raises Stage 2b from "nice extension" to **the experiment that decides
+whether a headline claim survives**, and it costs ~2.5 h.
