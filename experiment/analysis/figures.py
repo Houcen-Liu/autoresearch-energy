@@ -20,18 +20,61 @@ import sys                                                        # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pareto import CELL_KEYS, cell_keys, cell_summary                        # noqa: E402
 
+def _subtitle(cells) -> str:
+    """Describe only the encodings this experiment actually uses.
+
+    A fixed subtitle promised "colour: patience" on a Stage-2 figure that varies
+    no patience, which is worse than saying nothing: it tells the reader to look
+    for a distinction that is not in the plot.
+    """
+    parts = []
+    if "proposer" in cells.columns and cells.proposer.nunique() > 1:
+        parts.append("marker: proposer")
+    if "patience" in cells.columns and cells.patience.nunique() > 1:
+        parts.append("colour: patience")
+    if "thinking_requested" in cells.columns and cells.thinking_requested.nunique() > 1:
+        parts.append("colour: reasoning")
+    if "temperature" in cells.columns and cells.temperature.nunique() > 1:
+        parts.append("colour: temperature")
+    if "loop_budget" in cells.columns and cells.loop_budget.nunique() > 1:
+        parts.append("size: loop budget")
+    if "is_baseline" in cells.columns and cells.is_baseline.any():
+        parts.append("outlined: baseline")
+    return "  ·  ".join(parts)
+
+
+def _enc(row, field, table, default):
+    """Look a value up in an encoding table, tolerating an absent factor."""
+    v = getattr(row, field, None)
+    if v is None:
+        return default
+    return table.get(v, table.get(str(v), default))
+
+
 MARKERS = {"dense": "o", "moe": "s"}
 # The run table names the levels "greedy"/"patience3"; the tidy table stores
 # the enforced integer (1/3). Key on both, or every lookup silently falls
 # through to black and the figure's own subtitle promises an encoding that is
 # not there -- which is how the first Phase-1 figure shipped.
+ALT_COLORS = {"off": "#1f77b4", "on": "#d62728",
+              0.0: "#1f77b4", 0.4: "#55a868", 0.7: "#d62728", 1.0: "#8172b3",
+              "0.0": "#1f77b4", "0.4": "#55a868", "0.7": "#d62728", "1.0": "#8172b3"}
 COLORS = {"greedy": "#1f77b4", "patience3": "#d62728",
           "1": "#1f77b4", "3": "#d62728", 1: "#1f77b4", 3: "#d62728"}
 SIZES = {10: 70, 20: 170}
 
 
 def _label(r) -> str:
-    return f"{r.proposer}/{r.patience}/b{int(r.loop_budget)}"
+    """Cell label built from whichever factors the experiment varied."""
+    bits = []
+    for field, fmt in (("proposer", str), ("patience", str),
+                       ("thinking_requested", lambda v: f"think-{v}"),
+                       ("temperature", lambda v: f"T{v}"),
+                       ("loop_budget", lambda v: f"b{int(v)}")):
+        v = getattr(r, field, None)
+        if v is not None:
+            bits.append(fmt(v))
+    return "/".join(bits)
 
 
 def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
@@ -44,11 +87,18 @@ def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
     for _i, (_, r) in enumerate(cells.iterrows()):
         ax.errorbar(r.E_mean / 1000, r.acc_mean * 100,
                     xerr=(r.E_sd or 0) / 1000, yerr=(r.acc_sd or 0) * 100,
-                    fmt=MARKERS.get(r.proposer, "o"),
-                    color=COLORS.get(r.patience, COLORS.get(str(r.patience), "k")),
-                    markersize=(10 if r.loop_budget == 20 else 7),
-                    markeredgecolor="black" if r.is_baseline else "none",
-                    markeredgewidth=2 if r.is_baseline else 0,
+                    # Encodings degrade gracefully: a Stage-2 experiment does
+                    # not vary patience or loop budget, so those columns are
+                    # absent and the marker simply carries less information
+                    # rather than the figure failing to render.
+                    fmt=MARKERS.get(getattr(r, "proposer", None), "o"),
+                    color=(_enc(r, "patience", COLORS, None)
+                           or _enc(r, "thinking_requested", ALT_COLORS, None)
+                           or _enc(r, "temperature", ALT_COLORS, None) or "k"),
+                    markersize=(10 if getattr(r, "loop_budget", None) == 20 else 7),
+                    markeredgecolor=("black" if getattr(r, "is_baseline", False)
+                                     else "none"),
+                    markeredgewidth=2 if getattr(r, "is_baseline", False) else 0,
                     capsize=3, zorder=3)
         # alternate the offset so the low-energy cluster does not overprint
         dy = 9 if (_i % 2 == 0) else -13
@@ -62,9 +112,8 @@ def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
 
     ax.set_xlabel("Session energy $E_{total}$ (kJ)")
     ax.set_ylabel("CIFAR-10 test accuracy (%)")
-    ax.set_title("Energy/accuracy Pareto frontier\n"
-                 "marker: proposer  ·  colour: patience  ·  size: loop budget  ·  "
-                 "outlined: baseline", fontsize=9)
+    ax.set_title("Energy/accuracy Pareto frontier\n" + _subtitle(cells),
+                 fontsize=9)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="lower right")
     fig.tight_layout()
@@ -77,7 +126,7 @@ def fig_pareto(tidy: pd.DataFrame, out: Path) -> Path:
 
 def fig_decomposition(tidy: pd.DataFrame, out: Path) -> Path:
     g = tidy.groupby(cell_keys(tidy), dropna=False)[["E_prop_J", "E_train_J"]].mean().reset_index()
-    labels = [f"{r.proposer}\n{r.patience}\nb{int(r.loop_budget)}" for _, r in g.iterrows()]
+    labels = [_label(r).replace("/", "\n") for _, r in g.iterrows()]
     fig, ax = plt.subplots(figsize=(8.5, 4.4))
     ax.bar(labels, g.E_train_J / 1000, label="$E_{train}$ (GPU0)", color="#4c72b0")
     ax.bar(labels, g.E_prop_J / 1000, bottom=g.E_train_J / 1000,

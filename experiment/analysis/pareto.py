@@ -56,10 +56,17 @@ def cell_summary(tidy: pd.DataFrame, x: str = "E_gpu_total_J",
               kept_mean=("kept", "mean"))
          .reset_index())
     g["on_frontier"] = non_dominated(g.rename(columns={"E_mean": x, "acc_mean": y}), x, y)
+    # The baseline cell is defined in Phase-1 terms. A Stage-2 experiment groups
+    # on different factors, so match only on the keys this table actually has --
+    # otherwise the lookup raises on a column the experiment never varied.
     base = g
     for k, v in BASELINE_CELL.items():
+        if k not in g.columns:
+            continue
         accepted = {str(x) for x in (v if isinstance(v, tuple) else (v,))}
         base = base[base[k].astype(str).isin(accepted)]
+    if len(base) == len(g):        # nothing distinguished it: no baseline here
+        base = base.iloc[0:0]
     g["is_baseline"] = g.index.isin(base.index)
     if len(base):
         b = base.iloc[0]
