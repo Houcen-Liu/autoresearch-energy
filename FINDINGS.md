@@ -745,3 +745,100 @@ the Phase 2 thinking study (section 9.2).
 - **One workload, one budget.** CIFAR-10 CNN at 45 s.
 - n = 12 per arm. Effect sizes are large and consistent; pairwise significance
   after correction is not achieved for the proposer contrast.
+
+---
+
+# 11. STAGE 2a RESULTS — does reasoning pay for itself? (12 sessions, 2026-08-13)
+
+`proposer` x `thinking`, 3 repetitions, MoE and dense, greedy, budget 10.
+All 12 sessions valid, 0 quarantined.
+
+**Manipulation verified by measurement:** 0 reasoning tokens in every
+`thinking=off` session; 23 909-47 904 in every `thinking=on` session. The factor
+took, and this is stated from the log rather than from the config.
+
+## 11.1 The cells
+
+| arm | thinking | E_total kJ | E_prop kJ | test acc | max obs | kept | errors | latency s |
+|---|---|---|---|---|---|---|---|---|
+| dense | off | 108.1 | 59.2 | 0.7572 | 0.7577 | 0.33 | 1.0 | 60.0 |
+| dense | **on** | 172.6 | 133.3 | **0.8490** | 0.8622 | 1.33 | 4.3 | 139.3 |
+| **MoE** | **off** | **52.1** | **22.0** | 0.8469 | 0.8593 | **2.00** | 3.3 | 31.2 |
+| MoE | on | 92.0 | 59.0 | 0.8378 | 0.8470 | 1.00 | 4.3 | 88.4 |
+
+## 11.2 The registered prediction held, but only just
+
+Predicted (FINDINGS 9.2, from probe + power, before running): MoE-with-reasoning
+6.17 kJ per proposal against dense-without at 6.73 kJ.
+
+Measured: **MoE-on 5.90 kJ vs dense-off 5.92 kJ.**
+
+The direction is correct and the absolute values are within 5 % of prediction,
+but the margin collapsed from 0.56 kJ to **0.02 kJ**. The honest statement is
+that *a sparse model can reason for approximately what a dense model of half the
+size spends not reasoning* -- not "for less". Reporting this as a confirmed
+inequality would over-read a 0.3 % difference.
+
+## 11.3 The finding: reasoning and sparsity are substitutes, not complements
+
+| | effect of turning reasoning on |
+|---|---|
+| dense | +9.18 pp test accuracy, 0.33 -> 1.33 kept |
+| MoE | -0.91 pp test accuracy, 2.00 -> 1.00 kept |
+
+The MoE difference (0.91 pp) is **below the measured keep threshold** (1.23 pp),
+so the correct claim is that reasoning does **nothing** for the MoE, not that it
+harms it. The dense difference (9.18 pp) is far above it.
+
+Reasoning appears to substitute for whatever the sparse model already brings.
+Buying both is buying the same thing twice.
+
+**Correction for an unlucky cell.** Stage 2a's `dense/off` cell is nominally
+identical to Phase 1's `dense/greedy/budget-10` cell, and the two disagree: 0.7572
+vs 0.8214 test accuracy, 0.33 vs 1.67 kept. Pooling both (n = 6) gives dense-off
+at **0.7893**, so the effect of reasoning on the dense arm is **+6.0 pp**, not
++9.2 pp. The larger figure is partly an unlucky draw. Report the pooled version.
+
+## 11.4 The practitioner conclusion inverts the intuitive one
+
+| configuration | E_total | test acc |
+|---|---|---|
+| **MoE, no reasoning** | **52.1 kJ** | **0.8469** |
+| dense, with reasoning | 172.6 kJ | 0.8490 |
+
+**3.3x less energy for an accuracy difference of 0.21 pp** -- six times smaller
+than the noise floor, i.e. indistinguishable. For a self-hoster the guidance is
+therefore: **spend the budget on sparsity, not on reasoning tokens.** Reasoning is
+the expensive way to reach a place the sparse model reaches for free.
+
+## 11.5 Reasoning did not reduce coding errors
+
+Errors per session rose in both arms: dense 1.0 -> 4.3, MoE 3.3 -> 4.3.
+
+This contradicts the expectation stated in 9.2, that a reasoning pass would catch
+errors of the AdamW-with-an-SGD-learning-rate class. It did not. Longer
+deliberation produced more ambitious proposals, not more correct ones. (Note the
+dense-off error count of 1.0 is low partly because that cell barely proposed
+anything that ran: 0.33 kept.)
+
+## 11.6 A control worth reporting: the instrument is stable, the agent is not
+
+Phase 1's `dense/greedy/b10` and Stage 2a's `dense/off` are the same
+configuration, executed in independent experiments days apart, on the same
+hardware:
+
+| | Phase 1 | Stage 2a | agreement |
+|---|---|---|---|
+| session energy | 107.9 kJ | 108.1 kJ | **0.20 %** |
+| test accuracy | 0.8214 | 0.7572 | **6.42 pp apart** |
+| kept | 1.67 | 0.33 | -- |
+
+**Energy reproduces to a fifth of a percent; accuracy does not reproduce at all
+at n = 3.** The measurement apparatus is therefore not the source of variance --
+the agent is. This is the strongest available justification for the design's
+pre-registered decision to report effect sizes over significance tests, and a
+concrete warning against reading any single three-session cell as a point
+estimate of accuracy.
+
+It also means energy comparisons in this study are far better powered than
+accuracy comparisons, and should carry more of the argument.

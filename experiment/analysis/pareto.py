@@ -22,7 +22,8 @@ BASELINE_CELL = {"proposer": "dense", "patience": ("greedy", "1", 1),
 # Phase 1's factors by default; Stage 2 experiments vary different ones, so the
 # cell definition follows the data rather than being fixed here (see
 # aggregate.ALL_FACTORS).
-ALL_FACTORS = ["proposer", "patience", "loop_budget", "thinking", "temperature"]
+ALL_FACTORS = ["proposer", "patience", "loop_budget",
+               "thinking", "thinking_requested", "temperature"]
 CELL_KEYS = ["proposer", "patience", "loop_budget"]
 
 

@@ -23,7 +23,11 @@ from harness.session_log import iterations_from_log, read_log     # noqa: E402
 # Phase 1's three factors made the Stage-2a summary pool across `thinking`,
 # reporting a table that looked plausible and answered the wrong question.
 # Anything present in the run-table row is treated as a factor.
-ALL_FACTORS = ("proposer", "patience", "loop_budget", "thinking", "temperature")
+ALL_FACTORS = ("proposer", "patience", "loop_budget",
+               # the run table names it `thinking`; the session summary records
+               # `thinking_requested`. Accept both, since tidy.csv is built from
+               # the summary and would otherwise silently pool across the factor.
+               "thinking", "thinking_requested", "temperature")
 CELL_KEYS = ALL_FACTORS
 
 
