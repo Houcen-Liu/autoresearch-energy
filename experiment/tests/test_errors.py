@@ -4,6 +4,7 @@ These exist because of what the pilot did: four Ollama read timeouts were
 recorded as `errored`, which would have entered the run table as evidence that
 the proposer produced four useless mutations.
 """
+import json
 import sys
 import time
 from pathlib import Path
@@ -16,7 +17,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "workload"))
 
 from harness import agent_loop                                    # noqa: E402
-from harness.errors import ErrorClass, ProposerTimeout            # noqa: E402
+from harness.errors import (ErrorClass, ProposerTimeout,          # noqa: E402
+                            ProposerTransport)
 from harness.proposer import Proposer                             # noqa: E402
 from harness.session_log import read_log                          # noqa: E402
 from prepare_cifar import prepare_synthetic                       # noqa: E402
@@ -270,6 +272,72 @@ def test_rejected_extra_params_are_dropped_and_retried(monkeypatch, capsys):
     assert "think" in seen[0] and "think" not in seen[1]
     assert p.request_manifest()["params_reduced"] is True
     assert "NOT in effect" in capsys.readouterr().out
+
+
+def test_context_400_keeps_body_and_does_not_drop_extra_params(monkeypatch):
+    """A context overflow is HTTP 400 but says nothing about chat-template args."""
+    p = Proposer("http://x/v1", "m", timeout_s=5, max_retries=0,
+                 time_budget_s=20,
+                 extra_params={"chat_template_kwargs": {"enable_thinking": False}})
+    body = ({"error": {"message": "maximum context length is 16384 tokens; "
+                                  "requested 16410 tokens"}})
+
+    class Resp:
+        status_code = 400
+        text = json.dumps(body)
+
+        @staticmethod
+        def raise_for_status():
+            raise requests.HTTPError("400 Client Error")
+
+        @staticmethod
+        def json():
+            return body
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Resp())
+
+    with pytest.raises(ProposerTransport) as exc:
+        p.complete("sys", "user")
+
+    attempt = exc.value.attempts[-1]
+    assert "maximum context length" in attempt.detail
+    assert "16384" in attempt.raw
+    assert "chat_template_kwargs" in p.params
+    assert p.request_manifest()["params_reduced"] is False
+
+
+def test_persistent_infra_errors_abort_after_earlier_success():
+    counts = {str(e): 0 for e in ErrorClass}
+    counts[str(ErrorClass.INFRA_TRANSPORT)] = 3
+    history = [{"iter": 1, "val_acc": 0.75, "outcome": "kept"}]
+    history.extend({"iter": i, "val_acc": None, "outcome": "errored",
+                    "error_class": str(ErrorClass.INFRA_TRANSPORT)}
+                   for i in range(2, 5))
+
+    assert agent_loop._should_abort(counts, 4, 0.25, history, 3)
+
+
+def test_history_table_bounds_long_horizon_prompt_growth():
+    rows = [{"iter": i, "rationale": "x" * 70, "val_acc": 0.75,
+             "outcome": "reverted (patience exhausted)"}
+            for i in range(1, 101)]
+
+    table = agent_loop.history_table(rows, max_rows=20)
+
+    assert "80 earlier attempts omitted" in table
+    assert "| 80 |" not in table
+    assert "| 81 |" in table and "| 100 |" in table
+    assert len(table) < 4_000
+
+    prompt = agent_loop.render_program_md(
+        train_seconds=45, patience=1, loop_budget=100, eps=0.0123,
+        history=table,
+        current_source=(ROOT / "workload" / "train.py").read_text(encoding="utf-8"),
+        baseline_val_acc="0.7600", baseline_epochs=40, baseline_steps=10_000,
+    )
+    system = (ROOT / "harness" / "templates" / "system.txt").read_text(
+        encoding="utf-8")
+    assert (len(system) + len(prompt) + 3) // 4 < 4_096
 
 
 def test_truncated_reply_is_diagnosed_as_truncation(monkeypatch):

@@ -58,6 +58,8 @@ def test_allows_external_measurement_files_in_new_run_directory(
     assert long_horizon.main() == 0
     assert len(commands) == 1
     assert str(run_dir) in commands[0]
+    assert commands[0][commands[0].index("--max-tokens") + 1] == "8192"
+    assert commands[0][commands[0].index("--history-max-rows") + 1] == "20"
 
 
 def test_returns_failure_for_scientifically_invalid_session(tmp_path, monkeypatch):

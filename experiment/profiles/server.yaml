@@ -94,3 +94,7 @@ loop:
   # violations, guard rejections, crashed recipes -- are data and never trigger
   # this.
   max_infra_error_rate: 0.25
+  # Stop after a persistent outage even if earlier iterations succeeded. This
+  # prevents a deterministic request failure from consuming the remaining
+  # long-horizon budget before the session is quarantined.
+  max_consecutive_infra_errors: 3

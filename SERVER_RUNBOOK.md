@@ -463,7 +463,8 @@ REVISION=$(grep -A3 '^moe:' experiment/serving/models.yaml | grep revision | awk
 cd ~/autoresearch-energy/experiment && source ../.venv/bin/activate
 python scripts/preflight.py --profile profiles/server.yaml
 python scripts/probe_proposer.py --profile profiles/server.yaml \
-  --model moe --endpoint http://127.0.0.1:8001/v1 --timeout 600
+  --model moe --endpoint http://127.0.0.1:8001/v1 --timeout 600 \
+  --max-tokens 8192
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN_DIR="$HOME/autoresearch-energy/experiments/long_horizon/moe_100it_seed0_$STAMP"
@@ -489,6 +490,7 @@ energibridge -o "$RUN_DIR/energibridge.csv" -i 100 --summary -- \
   python -u scripts/long_horizon.py \
     --profile "$PWD/profiles/server.yaml" --proposer moe \
     --iterations 100 --patience 1 --seed 0 --thinking off \
+    --max-tokens 8192 --history-max-rows 20 \
     --run-dir "$RUN_DIR" \
   2>&1 | tee "$RUN_DIR/console.log"
 RUN_RC=${PIPESTATUS[0]}
@@ -513,7 +515,7 @@ python measurement/energy_align.py --run-dir "$RUN_DIR" \
 python measurement/idle_subtract.py --run-dir "$RUN_DIR" \
   --gpu-train 0 --gpu-prop 1 | tee "$RUN_DIR/idle_subtract.log"
 python analysis/trajectory.py --run-dir "$RUN_DIR" | tee "$RUN_DIR/trajectory.log"
-python -c 'import json,sys; s=json.load(open(sys.argv[1])); print(json.dumps(s,indent=2)); assert s["iterations"]==100 and s["valid"] and not s["aborted_early"] and s["thinking_tokens_total"]==0' \
+python -c 'import json,sys; s=json.load(open(sys.argv[1])); print(json.dumps(s,indent=2)); assert s["iterations"]==100 and s["iterations_completed"]==100 and s["valid"] and not s["aborted_early"] and s["infra_errors"]==0 and s["thinking_tokens_total"]==0' \
   "$RUN_DIR/summary.json"
 ```
 

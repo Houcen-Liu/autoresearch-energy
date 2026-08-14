@@ -45,6 +45,12 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--run-dir", default=None)
     ap.add_argument("--thinking", choices=["on", "off"], default=None)
+    ap.add_argument("--max-tokens", type=int, default=8192,
+                    help="completion allowance; 8192 leaves half of the 16384-token "
+                         "server context for the prompt")
+    ap.add_argument("--history-max-rows", type=int, default=20,
+                    help="recent history rows included in each prompt; the full "
+                         "history is still recorded in session.jsonl")
     a = ap.parse_args()
 
     run_dir = Path(a.run_dir or (ROOT.parent / "experiments" / "long_horizon" /
@@ -65,6 +71,8 @@ def main() -> int:
     est = a.iterations * ((32 if a.proposer == "moe" else 62) + 50)
     print(f"long-horizon session: {a.proposer}, {a.iterations} iterations, "
           f"patience {a.patience}")
+    print(f"prompt safety: max_tokens={a.max_tokens}, "
+          f"history_max_rows={a.history_max_rows}")
     print(f"estimated wall-clock ~{est/3600:.1f} h  ->  {run_dir}")
     print("serve the arm first; this script does not swap models.\n")
 
@@ -74,7 +82,9 @@ def main() -> int:
            "--patience", str(a.patience),
            "--loop-budget", str(a.iterations),
            "--run-dir", str(run_dir),
-           "--seed", str(a.seed)]
+           "--seed", str(a.seed),
+           "--max-tokens", str(a.max_tokens),
+           "--history-max-rows", str(a.history_max_rows)]
     if a.thinking:
         cmd += ["--thinking", a.thinking]
 

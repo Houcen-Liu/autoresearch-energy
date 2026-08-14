@@ -1,0 +1,182 @@
+<mxfile host="Electron">
+  <diagram id="autoresearch-loop" name="Implemented autoresearch loop">
+    <mxGraphModel dx="2416" dy="1031" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="700" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="start" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3E3E3;strokeColor=#333333;fontSize=17;fontColor=#000000;arcSize=10;" value="&lt;b&gt;START SESSION&lt;/b&gt;&lt;br&gt;baseline train + validation;&lt;br&gt;set best score, recipe, and checkpoint" vertex="1">
+          <mxGeometry height="90" width="220" x="-340" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="scope" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3E3E3;strokeColor=#333333;fontSize=15;fontColor=#000000;arcSize=10;dashed=1;" value="fixed &lt;font face=&quot;Courier New&quot;&gt;loop_budget&lt;/font&gt;&lt;br&gt;one slot per outer-loop attempt;&lt;br&gt;internal proposer retries stay&lt;br&gt;within that slot" vertex="1">
+          <mxGeometry height="100" width="220" x="160" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="read" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3E3E3;strokeColor=#333333;fontSize=18;fontColor=#000000;arcSize=10;" value="read &lt;font face=&quot;Courier New&quot;&gt;program.md&lt;/font&gt;&lt;br&gt;(task + current recipe&lt;br&gt;+ history)" vertex="1">
+          <mxGeometry height="85" width="180" x="-340" y="125" as="geometry" />
+        </mxCell>
+        <mxCell id="propose" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=18;fontColor=#000000;arcSize=10;" value="proposer LLM returns&lt;br&gt;one complete recipe&lt;br&gt;mutation" vertex="1">
+          <mxGeometry height="85" width="210" x="-85" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="proposer_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;arcSize=10;dashed=1;fillStyle=solid;gradientColor=none;" value="&lt;b&gt;ERROR&lt;/b&gt;&lt;br&gt;record failed proposal&lt;br&gt;(recipe state unchanged)" vertex="1">
+          <mxGeometry height="100" width="180" x="200" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="guard" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=18;fontColor=#000000;" value="guard accepts&lt;br&gt;mutation?" vertex="1">
+          <mxGeometry height="100" width="210" x="-85" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="reject" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;arcSize=10;dashed=1;" value="&lt;b&gt;REJECT&lt;/b&gt;&lt;br&gt;record guard violation&lt;br&gt;(recipe state unchanged)" vertex="1">
+          <mxGeometry height="100" width="180" x="-340" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="train" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;arcSize=10;" value="train from scratch&lt;br&gt;(fixed wall-clock budget)&lt;br&gt;then evaluate validation accuracy" vertex="1">
+          <mxGeometry height="105" width="210" x="-85" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="training_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=16;fontColor=#000000;arcSize=10;dashed=1;fillStyle=solid;gradientColor=none;" value="&lt;b&gt;ERROR&lt;/b&gt;&lt;br&gt;record training failure;&lt;br&gt;restore the pre-candidate&lt;br&gt;recipe tip" vertex="1">
+          <mxGeometry height="110" width="180" x="200" y="357.5" as="geometry" />
+        </mxCell>
+        <mxCell id="epsilon" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;" value="&lt;font face=&quot;Courier New&quot;&gt;val_acc&lt;/font&gt; &amp;gt;&lt;br&gt;best + &amp;epsilon; ?" vertex="1">
+          <mxGeometry height="110" width="210" x="-85" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="keep" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=16;fontColor=#000000;arcSize=10;" value="&lt;b&gt;KEEP&lt;/b&gt;&lt;br&gt;new best recipe + checkpoint;&lt;br&gt;absorb pending chain;&lt;br&gt;reset regressions" vertex="1">
+          <mxGeometry height="110" width="180" x="-340" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="patience" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;" value="increment regressions;&lt;br&gt;regressions &amp;gt;= patience?" vertex="1">
+          <mxGeometry height="110" width="210" x="-85" y="645" as="geometry" />
+        </mxCell>
+        <mxCell id="provisional" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=16;fontColor=#000000;arcSize=10;" value="&lt;b&gt;PROVISIONAL&lt;/b&gt;&lt;br&gt;retain chain as context&lt;br&gt;for the next mutation" vertex="1">
+          <mxGeometry height="90" width="180" x="-340" y="655" as="geometry" />
+        </mxCell>
+        <mxCell id="rollback" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=16;fontColor=#000000;arcSize=10;" value="&lt;b&gt;ROLL BACK&lt;/b&gt;&lt;br&gt;discard provisional chain;&lt;br&gt;restore global best;&lt;br&gt;reset regressions" vertex="1">
+          <mxGeometry height="110" width="180" x="200" y="645" as="geometry" />
+        </mxCell>
+        <mxCell id="record" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;arcSize=10;" value="record outcome;&lt;br&gt;increment iteration" vertex="1">
+          <mxGeometry height="60" width="210" x="-85" y="795" as="geometry" />
+        </mxCell>
+        <mxCell id="budget" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;fontSize=17;fontColor=#000000;" value="&lt;font face=&quot;Courier New&quot;&gt;loop_budget&lt;/font&gt;&lt;br&gt;exhausted?" vertex="1">
+          <mxGeometry height="105" width="210" x="-85" y="875" as="geometry" />
+        </mxCell>
+        <mxCell id="final" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3E3E3;strokeColor=#333333;fontSize=16;fontColor=#000000;arcSize=10;" value="&lt;b&gt;FINALIZE&lt;/b&gt;&lt;br&gt;rollback pending chain;&lt;br&gt;test best checkpoint once;&lt;br&gt;archive and end session" vertex="1">
+          <mxGeometry height="110" width="200" x="180" y="872.5" as="geometry" />
+        </mxCell>
+        <mxCell id="e-start-read" edge="1" parent="1" source="start" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;entryX=0.5;entryY=0;exitX=0.409;exitY=1.005;exitDx=0;exitDy=0;exitPerimeter=0;" target="read">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-250" y="120" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-read-propose" edge="1" parent="1" source="read" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="propose">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-propose-guard" edge="1" parent="1" source="propose" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="guard" value="proposal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-propose-error" edge="1" parent="1" source="propose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;dashed=1;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0.002;entryY=0.598;entryDx=0;entryDy=0;entryPerimeter=0;" target="proposer_error" value="error">
+          <mxGeometry relative="1" x="-0.2219" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="138" y="122.5" />
+              <mxPoint x="138" y="279.8" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-guard-reject" edge="1" parent="1" source="guard" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;dashed=1;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1.006;entryY=0.402;entryDx=0;entryDy=0;entryPerimeter=0;" target="reject" value="NO">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-guard-train" edge="1" parent="1" source="guard" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="train" value="YES">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-train-error" edge="1" parent="1" source="train" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;dashed=1;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="training_error" value="error">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-train-epsilon" edge="1" parent="1" source="train" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="epsilon" value="valid val_acc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-epsilon-keep" edge="1" parent="1" source="epsilon" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" target="keep" value="YES">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-epsilon-patience" edge="1" parent="1" source="epsilon" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="patience" value="NO">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-patience-provisional" edge="1" parent="1" source="patience" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" target="provisional" value="NO">
+          <mxGeometry relative="1" x="0.2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-patience-rollback" edge="1" parent="1" source="patience" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="rollback" value="YES">
+          <mxGeometry relative="1" x="0.2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-reject-record" edge="1" parent="1" source="reject" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=1;exitY=0.5;entryX=0;entryY=0.25;exitDx=0;exitDy=0;" target="record">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-100" y="290" />
+              <mxPoint x="-100" y="810" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-keep-record" edge="1" parent="1" source="keep" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="record">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-160" y="580" />
+              <mxPoint x="-110" y="580" />
+              <mxPoint x="-110" y="825" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-provisional-record" edge="1" parent="1" source="provisional" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=1;exitY=0.5;entryX=0;entryY=0.75;" target="record">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-160" y="720" />
+              <mxPoint x="-120" y="720" />
+              <mxPoint x="-120" y="840" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-proposer-error-record" edge="1" parent="1" source="proposer_error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;entryX=1;entryY=0.25;" target="record">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="138.01" y="290.1" />
+              <mxPoint x="138.01" y="810.01" />
+            </Array>
+            <mxPoint x="200.2" y="290" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-training-error-record" edge="1" parent="1" source="training_error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=0;exitY=0.75;entryX=1;entryY=0.5;exitDx=0;exitDy=0;" target="record">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150.02" y="440" />
+              <mxPoint x="150.02" y="825" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rollback-record" edge="1" parent="1" source="rollback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=0;exitY=0.5;entryX=1;entryY=0.75;" target="record">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200" y="720.03" />
+              <mxPoint x="160" y="720.03" />
+              <mxPoint x="160" y="845" />
+            </Array>
+            <mxPoint x="200" y="704.97" as="sourcePoint" />
+            <mxPoint x="125" y="844.97" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-record-budget" edge="1" parent="1" source="record" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="budget">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-budget-final" edge="1" parent="1" source="budget" style="edgeStyle=none;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="final" value="YES">
+          <mxGeometry relative="1" x="-0.0909" y="-2" as="geometry">
+            <mxPoint y="1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-budget-next" edge="1" parent="1" source="budget" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#333333;endArrow=classic;fontSize=18;fontColor=#000000;exitX=0;exitY=0.5;entryX=0;entryY=0.5;" target="read">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-349.94" y="927.47" />
+              <mxPoint x="-349.94" y="167.47" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="budget-next-label" parent="1" style="text;html=1;strokeColor=none;fillColor=#ffffff;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontColor=#000000;" value="NO: next attempt" vertex="1">
+          <mxGeometry height="30" width="155" x="-337" y="895" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

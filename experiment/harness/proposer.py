@@ -41,6 +41,13 @@ from harness.errors import (ProposerContract, ProposerTimeout, ProposerTransport
 STANDARD_PARAMS = {"temperature", "top_p", "max_tokens", "seed", "stop",
                    "presence_penalty", "frequency_penalty"}
 
+HTTP_BODY_LIMIT = 2_000
+EXTRA_PARAM_REJECTION_MARKERS = (
+    "unknown field", "unknown parameter", "unrecognized field",
+    "unsupported parameter", "unexpected keyword", "extra fields not permitted",
+    "extra inputs are not permitted",
+)
+
 CODE_BLOCK = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 RATIONALE = re.compile(r"RATIONALE:\s*(.+?)(?:\n|$)", re.IGNORECASE)
 
@@ -165,8 +172,9 @@ class Proposer:
             remaining = max(remaining, 1.0)
 
             a_start = time.time()
+            response = None
             try:
-                r = requests.post(
+                response = requests.post(
                     f"{self.endpoint}/chat/completions",
                     json={"model": self.model, "messages": messages,
                           "stream": False, **self.params},
@@ -177,18 +185,26 @@ class Proposer:
                 # on neither /v1 endpoint). A 4xx here usually means one of our
                 # extras was rejected, so retry once with standard fields only
                 # and record that the pinned settings did not take effect.
-                if 400 <= r.status_code < 500 and not self._reduced:
-                    self._reduced = True
+                if 400 <= response.status_code < 500 and not self._reduced:
                     dropped = sorted(set(self.params) - STANDARD_PARAMS)
-                    if dropped:
+                    if dropped and _rejects_extra_params(response, dropped):
+                        body = _response_body(response)
+                        attempts.append(Attempt(
+                            n=n, t_start=a_start, t_end=time.time(),
+                            latency_s=time.time() - a_start,
+                            outcome="transport",
+                            detail=_http_detail(response), raw=body,
+                        ))
+                        self._reduced = True
                         print(f"[proposer] endpoint rejected {dropped}; retrying "
                               f"with standard parameters only. Those settings are "
-                              f"NOT in effect -- fix them before Phase 1.")
+                              f"NOT in effect -- fix them before treating the "
+                              f"session as evidence.")
                         self.params = {k: v for k, v in self.params.items()
                                        if k in STANDARD_PARAMS}
                         continue
-                r.raise_for_status()
-                body = r.json()
+                response.raise_for_status()
+                body = response.json()
                 choice = body["choices"][0]
                 text = choice["message"]["content"]
                 usage = body.get("usage", {})
@@ -228,12 +244,28 @@ class Proposer:
                                         outcome="timeout", detail=str(e)[:200]))
                 raise ProposerTimeout(f"request timed out after "
                                       f"{time.time() - a_start:.0f}s", attempts) from e
+            except requests.HTTPError as e:
+                detail = _http_detail(response, e)
+                attempts.append(Attempt(
+                    n=n, t_start=a_start, t_end=time.time(),
+                    latency_s=time.time() - a_start,
+                    outcome="transport", detail=detail,
+                    raw=_response_body(response),
+                ))
+                if n > self.max_retries:
+                    raise ProposerTransport(detail, attempts) from e
+                time.sleep(min(2 ** n, 8))
             except (requests.RequestException, KeyError, ValueError) as e:
+                body = _response_body(response)
+                detail = str(e)[:HTTP_BODY_LIMIT]
+                if body:
+                    detail = f"{detail}; response: {body}"[:HTTP_BODY_LIMIT]
                 attempts.append(Attempt(n=n, t_start=a_start, t_end=time.time(),
                                         latency_s=time.time() - a_start,
-                                        outcome="transport", detail=str(e)[:200]))
+                                        outcome="transport", detail=detail,
+                                        raw=body))
                 if n > self.max_retries:
-                    raise ProposerTransport(str(e), attempts) from e
+                    raise ProposerTransport(detail, attempts) from e
                 time.sleep(min(2 ** n, 8))
 
         raise ProposerContract(
@@ -340,6 +372,40 @@ def _thinking_tokens(text: str) -> int:
     the measurements rather than being invisible. ~4 chars per token.
     """
     return sum(len(b) for b in THINK_BLOCK.findall(text)) // 4
+
+
+def _response_body(response) -> str:
+    """Return a bounded HTTP response body, including JSON error messages."""
+    if response is None:
+        return ""
+    try:
+        text = response.text
+    except (AttributeError, RuntimeError):
+        try:
+            text = json.dumps(response.json(), ensure_ascii=True)
+        except (AttributeError, TypeError, ValueError):
+            return ""
+    return str(text).strip()[:HTTP_BODY_LIMIT]
+
+
+def _http_detail(response, error: Exception | None = None) -> str:
+    """Keep the server's explanation; ``raise_for_status`` omits it."""
+    status = getattr(response, "status_code", None)
+    body = _response_body(response)
+    prefix = f"HTTP {status}" if status is not None else str(error or "HTTP error")
+    return f"{prefix}: {body}"[:HTTP_BODY_LIMIT] if body else prefix[:HTTP_BODY_LIMIT]
+
+
+def _rejects_extra_params(response, params: list[str]) -> bool:
+    """True only when a 4xx identifies request fields as the problem.
+
+    A context-window overflow is also HTTP 400. Treating every 4xx as an
+    unsupported-extra signal hid the actual failure in the long-horizon run and
+    incorrectly disabled ``chat_template_kwargs`` for the rest of the session.
+    """
+    body = _response_body(response).lower()
+    return (any(str(param).lower() in body for param in params)
+            or any(marker in body for marker in EXTRA_PARAM_REJECTION_MARKERS))
 
 
 def _extract_current_source(prompt: str) -> str:

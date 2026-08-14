@@ -58,6 +58,9 @@ def main() -> int:
     ap.add_argument("--endpoint", default=None,
                     help="defaults to the profile's dense endpoint")
     ap.add_argument("--timeout", type=float, default=180)
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help="override the profile's completion allowance so a "
+                         "preflight can match a specialized run")
     a = ap.parse_args()
 
     cfg = yaml.safe_load(Path(a.profile).read_text())
@@ -165,7 +168,9 @@ def main() -> int:
     if suffix:
         system = f"{system}\n\n{suffix}"
         print(f"       (system_suffix in effect: {suffix!r})")
-    real = {"temperature": 0, "max_tokens": pcfg.get("max_tokens", 4096),
+    real = {"temperature": 0,
+            "max_tokens": (pcfg.get("max_tokens", 4096)
+                           if a.max_tokens is None else a.max_tokens),
             **(pcfg.get("extra_params") or {})}
     ok, body, dt = _post(endpoint, {"model": a.model, "stream": False,
                                     "messages": [{"role": "system", "content": system},
@@ -214,7 +219,7 @@ def main() -> int:
             print(f"{WARN} extra_params REJECTED: {list(extra)} -> {body2}")
             print("       the harness will drop them and continue, but the settings "
                   "they encode (e.g. thinking mode) will NOT be in effect.")
-            print("       Fix profiles/*.yaml before Phase 1 -- see D9.")
+            print("       Fix profiles/*.yaml before treating the session as evidence.")
 
     print("\nprobe complete")
     return 0

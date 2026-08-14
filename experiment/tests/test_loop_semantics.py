@@ -141,6 +141,26 @@ def test_errors_count_against_the_budget(tmp_path, monkeypatch):
     assert s["iterations"] == 3
 
 
+def test_crash_restores_provisional_tip_not_crashing_candidate(tmp_path, monkeypatch):
+    # Iteration 1 is retained provisionally. Iteration 2 crashes after its
+    # proposal is committed; iteration 3 must therefore start from iteration 1,
+    # not from the crashing source and not from the global baseline.
+    _install(monkeypatch, [0.69, None, 0.68])
+    restored_sources = []
+    original_checkout = agent_loop.RecipeRepo.checkout
+
+    def recording_checkout(repo, sha):
+        restored_sources.append(repo._git("show", f"{sha}:train.py"))
+        return original_checkout(repo, sha)
+
+    monkeypatch.setattr(agent_loop.RecipeRepo, "checkout", recording_checkout)
+    s = _run(tmp_path, patience=3, budget=3)
+
+    assert s["errored"] == 1
+    assert "# proposal 1" in restored_sources[0]
+    assert "# proposal 2" not in restored_sources[0]
+
+
 def test_eps_blocks_noise_level_improvement(tmp_path, monkeypatch):
     _install(monkeypatch, [0.7005])            # +0.0005 < eps
     s = _run(tmp_path, patience=1, budget=1)

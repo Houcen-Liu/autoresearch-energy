@@ -72,15 +72,28 @@ def render_program_md(**ctx) -> str:
         return text
 
 
-def history_table(rows: list[dict]) -> str:
+def history_table(rows: list[dict], max_rows: int | None = None) -> str:
     if not rows:
         return "_(no experiments yet)_"
+    prefix = ""
+    if max_rows is not None and len(rows) > max_rows:
+        omitted = rows[:-max_rows]
+        counts: dict[str, int] = {}
+        for row in omitted:
+            outcome = str(row.get("outcome", "unknown")).split(" (")[0]
+            counts[outcome] = counts.get(outcome, 0) + 1
+        compact = ", ".join(
+            f"{n} {outcome}" for outcome, n in sorted(counts.items())
+        )
+        prefix = (f"_({len(omitted)} earlier attempts omitted from this prompt: "
+                  f"{compact}; full history remains in session.jsonl)_\n\n")
+        rows = rows[-max_rows:]
     head = "| # | change | val_acc | outcome |\n|---|---|---|---|"
     body = "\n".join(
         f"| {r['iter']} | {r['rationale'][:70]} | "
         f"{('%.4f' % r['val_acc']) if r['val_acc'] is not None else '—'} | {r['outcome']} |"
         for r in rows)
-    return head + "\n" + body
+    return prefix + head + "\n" + body
 
 
 # --------------------------------------------------------------------- runner
@@ -151,7 +164,9 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
                 proposer_model: str | None = None,
                 thinking: bool | None = None,
                 temperature: float | None = None,
-                baseline_path: Path | None = None) -> dict:
+                baseline_path: Path | None = None,
+                proposer_max_tokens: int | None = None,
+                history_max_rows: int | None = None) -> dict:
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     workdir = run_dir / "recipe"
@@ -192,12 +207,15 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
     if contract_seconds is None:
         raise RuntimeError(f"baseline recipe {baseline_path} declares no TRAIN_SECONDS")
     eps = float(cfg["loop"]["eps"])
+    if history_max_rows is not None and history_max_rows < 1:
+        raise ValueError("history_max_rows must be at least 1")
 
     log.emit("session_start", cell={"proposer": proposer_arm, "patience": patience,
                                     "loop_budget": loop_budget},
              seed=seed, attribution=cfg.get("attribution"),
              train_seconds=train_seconds, contract_seconds=contract_seconds,
              stub=bool(stub), synthetic_data=_is_synthetic(cfg),
+             history_max_rows=history_max_rows,
              versions=_versions())
 
     # --- proposer ----------------------------------------------------------
@@ -210,7 +228,8 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
             model=proposer_model or pcfg.get("model_names", {}).get(proposer_arm, proposer_arm),
             temperature=(pcfg["temperature"] if temperature is None else temperature),
             top_p=pcfg["top_p"],
-            max_tokens=pcfg["max_tokens"], seed=seed,
+            max_tokens=(pcfg["max_tokens"] if proposer_max_tokens is None
+                        else proposer_max_tokens), seed=seed,
             timeout_s=pcfg["request_timeout_s"],
             max_retries=pcfg.get("max_retries", 1),
             time_budget_s=pcfg.get("time_budget_s"),
@@ -251,23 +270,27 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
     err_counts = {str(e): 0 for e in ErrorClass}
     max_infra_rate = float(cfg.get("loop", {}).get("max_infra_error_rate",
                                                    DEFAULT_MAX_INFRA_ERROR_RATE))
+    max_consecutive_infra = int(cfg.get("loop", {}).get(
+        "max_consecutive_infra_errors", 3))
     aborted_early = False
     guard_feedback = ""
 
     # --- iterations --------------------------------------------------------
     for i in range(1, loop_budget + 1):
-        if i > 1 and _should_abort(err_counts, i - 1, max_infra_rate, history):
+        if i > 1 and _should_abort(err_counts, i - 1, max_infra_rate, history,
+                                   max_consecutive_infra):
             aborted_early = True
             log.emit("session_abort_early", iter=i - 1,
-                     reason="infrastructure errors with nothing evaluated",
+                     reason="persistent infrastructure errors",
                      infra_errors=_infra_total(err_counts))
-            print(f"[arloop] aborting after {i - 1} iterations: every attempt so "
-                  f"far failed on infrastructure. Check the endpoint and model name.")
+            print(f"[arloop] aborting after {i - 1} iterations: persistent "
+                  f"infrastructure errors. Check the last HTTP response and server log.")
             break
 
         prompt = render_program_md(
             train_seconds=train_seconds, patience=patience, loop_budget=loop_budget,
-            eps=eps, history=history_table(history), current_source=repo.read(),
+            eps=eps, history=history_table(history, history_max_rows),
+            current_source=repo.read(),
             # Measured facts about the budget, not advice. Without these the
             # agent has no idea that the budget buys ~43 epochs, and proposes
             # schedules built for hundreds (CosineAnnealingLR(T_max=100) was
@@ -285,7 +308,9 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         print(f"[arloop] iter {i}/{loop_budget}  proposing "
               f"(best {best_acc:.4f}, kept {counts['kept']}, "
               f"errored {counts['errored']}) ...", flush=True)
-        log.emit("propose_start", iter=i)
+        prompt_chars = len(system) + len(prompt)
+        log.emit("propose_start", iter=i, prompt_chars=prompt_chars,
+                 prompt_tokens_estimate=(prompt_chars + 3) // 4)
         try:
             resp: ProposerResponse = prop.complete(system, prompt)
         except ProposerError as e:
@@ -315,7 +340,8 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
             err_counts[str(ec)] += 1
             history.append({"iter": i,
                             "rationale": f"({ec} — no proposal)",
-                            "val_acc": None, "outcome": "errored"})
+                            "val_acc": None, "outcome": "errored",
+                            "error_class": str(ec)})
             continue
         except Exception as e:                                    # noqa: BLE001
             log.emit("propose_error", iter=i, error=str(e),
@@ -325,7 +351,8 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
             counts["errored"] += 1
             err_counts[str(ErrorClass.INFRA_TRANSPORT)] += 1
             history.append({"iter": i, "rationale": "(proposer failed)",
-                            "val_acc": None, "outcome": "errored"})
+                            "val_acc": None, "outcome": "errored",
+                            "error_class": str(ErrorClass.INFRA_TRANSPORT)})
             continue
         _think = sum(a.thinking_tokens for a in resp.attempt_log)
         think_total += _think
@@ -354,6 +381,10 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
                             "outcome": "rejected (rule violation)"})
             continue
 
+        # Preserve the state from which this candidate was proposed. If its
+        # training crashes, restore this exact tip: with patience > 1 it can be
+        # a valid provisional chain rather than the global best recipe.
+        previous_sha = repo.head()
         sha = repo.write_and_commit(resp.source, f"iter={i} proposal")
         print(f"[arloop] iter {i}: training {train_seconds:.0f}s ...", flush=True)
         log.emit("train_start", iter=i, sha=sha)
@@ -372,7 +403,7 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
             guard_feedback = ("Your previous proposal ran but CRASHED. Fix the "
                               "cause; do not repeat it.\n\n```\n" + tail + "\n```")
             err_counts[ec] = err_counts.get(ec, 0) + 1
-            repo.checkout(best_sha if not provisional else repo.head())
+            repo.checkout(previous_sha)
             log.emit("decision", iter=i, decision="errored", error_class=ec,
                      best_acc=best_acc, regressions=regressions)
             history.append({"iter": i, "rationale": resp.rationale, "val_acc": None,
@@ -413,13 +444,14 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         # infrastructure errors will not recover by trying harder, and every
         # further iteration burns a full training budget for no data. The pilot
         # spent six iterations discovering that a model name was wrong.
-        if _should_abort(err_counts, i, max_infra_rate, history):
+        if _should_abort(err_counts, i, max_infra_rate, history,
+                         max_consecutive_infra):
             aborted_early = True
             log.emit("session_abort_early", iter=i,
-                     reason="infrastructure errors with nothing evaluated",
+                     reason="persistent infrastructure errors",
                      infra_errors=_infra_total(err_counts))
-            print(f"[arloop] aborting after {i} iterations: every attempt so far "
-                  f"failed on infrastructure. Check the endpoint and model name.")
+            print(f"[arloop] aborting after {i} iterations: persistent "
+                  f"infrastructure errors. Check the last HTTP response and server log.")
             break
 
     # Any still-provisional chain at budget exhaustion never became the best.
@@ -442,7 +474,8 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
     repo.archive(run_dir / "recipe_history.bundle")
 
     infra_errors = sum(err_counts[str(e)] for e in ErrorClass if e.is_infra)
-    infra_rate = infra_errors / loop_budget if loop_budget else 0.0
+    iterations_completed = len(history)
+    infra_rate = infra_errors / iterations_completed if iterations_completed else 0.0
     max_rate = float(cfg.get("loop", {}).get("max_infra_error_rate",
                                              DEFAULT_MAX_INFRA_ERROR_RATE))
     evaluated = sum(1 for h in history if h["val_acc"] is not None)
@@ -456,7 +489,8 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
     max_obs = max(_seen) if _seen else base["val_acc"]
 
     summary = {
-        "iterations": loop_budget, "aborted_early": aborted_early, **counts,
+        "iterations": loop_budget, "iterations_completed": iterations_completed,
+        "aborted_early": aborted_early, **counts,
         **{f"err_{k}": v for k, v in err_counts.items()},
         "infra_errors": infra_errors, "infra_error_rate": round(infra_rate, 4),
         "evaluated_iterations": evaluated,
@@ -481,11 +515,14 @@ def run_session(cfg: dict, *, proposer_arm: str, patience: int, loop_budget: int
         "proposals_compared": div["n"],
         # A session is valid evidence about the proposer only if the machine
         # behaved and at least one mutation was actually evaluated.
-        "valid": bool(infra_rate <= max_rate and evaluated > 0),
-        "invalid_reason": ("" if (infra_rate <= max_rate and evaluated > 0) else
-                           (f"infra error rate {infra_rate:.0%} > {max_rate:.0%}"
-                            if infra_rate > max_rate else
-                            "no iteration was ever evaluated")),
+        "valid": bool(not aborted_early and infra_rate <= max_rate and evaluated > 0),
+        "invalid_reason": ("" if (not aborted_early and infra_rate <= max_rate
+                                      and evaluated > 0) else
+                           ("session aborted after persistent infrastructure errors"
+                            if aborted_early else
+                            (f"infra error rate {infra_rate:.0%} > {max_rate:.0%}"
+                             if infra_rate > max_rate else
+                             "no iteration was ever evaluated"))),
     }
     log.emit("session_end", **summary)
     log.close()
@@ -553,14 +590,21 @@ def _infra_total(err_counts: dict) -> int:
 
 
 def _should_abort(err_counts: dict, done: int, max_rate: float,
-                  history: list[dict], min_iters: int = 3) -> bool:
-    """Stop a session that is only producing infrastructure failures.
+                  history: list[dict], max_consecutive: int = 3,
+                  min_iters: int = 3) -> bool:
+    """Stop a session that is persistently producing infrastructure failures.
 
-    Requires a few iterations first so a single transient blip does not kill an
+    Consecutive infrastructure failures abort even after earlier useful results;
+    otherwise require a few iterations so one transient blip does not kill an
     otherwise healthy session.
     """
     if done < min_iters:
         return False
+    infra_classes = {str(e) for e in ErrorClass if e.is_infra}
+    recent = history[-max_consecutive:] if max_consecutive > 0 else []
+    if (len(recent) == max_consecutive
+            and all(row.get("error_class") in infra_classes for row in recent)):
+        return True
     if any(h["val_acc"] is not None for h in history):
         return False                      # something worked; keep going
     return _infra_total(err_counts) / done > max_rate
@@ -615,6 +659,12 @@ def main() -> int:
     ap.add_argument("--temperature", type=float, default=None,
                     help="override the profile's sampling temperature for this "
                          "session; Stage 2b varies this as a factor")
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help="override proposer output allowance; long prompts need "
+                         "room inside the server context window")
+    ap.add_argument("--history-max-rows", type=int, default=None,
+                    help="retain only the most recent N history rows in prompts; "
+                         "the full history remains in session.jsonl")
     ap.add_argument("--thinking", choices=["on", "off"], default=None,
                     help="override the profile's reasoning setting for this "
                          "session; Phase 2 varies this as a factor")
@@ -628,7 +678,9 @@ def main() -> int:
                     seed=a.seed, stub=a.stub, proposer_model=a.proposer_model,
                     thinking=(None if a.thinking is None else a.thinking == "on"),
                     temperature=a.temperature,
-                    baseline_path=a.baseline)
+                    baseline_path=a.baseline,
+                    proposer_max_tokens=a.max_tokens,
+                    history_max_rows=a.history_max_rows)
     print(json.dumps(s, indent=2))
     return 0
 
